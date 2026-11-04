@@ -1,59 +1,102 @@
-# text2svg
+# textrude
 
-Turns text into a multi-color model for 3D printing. It can output:
+Turn text and color emoji into **multi-color 3MF models** for 3D printing. Each color becomes its own part, already assigned to a filament. Opens directly in OrcaSlicer, Snapmaker Orca, and Bambu Studio. It can also export plain SVGs.
 
-- **3MF** (recommended for multi-color): each color is a separate 3D part, already assigned to its own filament. Opens directly in OrcaSlicer, Snapmaker Orca, and Bambu Studio.
-- **SVG**: only filled paths, one `<path>` per color. Note that Orca-based slicers import an SVG as a single part in one color.
+```sh
+textrude "I ❤️ 3D printing 🎉" -f Helvetica -w 1.5 --connect --flip -o sign.3mf
+```
 
-Features:
+## Features
 
-- The stroke is built as real geometry (by offsetting the polygon outline), so the color regions never overlap.
-- `--connect` joins islands that aren't connected (separate letters, the dots on i/j, the inside of ®, ...) with bars so the print comes out as one piece.
-- `--flip` mirrors the design so it prints face-down. The text side is then the surface that touches the build plate, which gives the smoothest finish.
-- Kerning and ligatures come from fontkit. Variable fonts work via `--variation`.
+- **Any font**: installed font names, font files (TTF, OTF, TTC, WOFF, WOFF2), or URLs. Names are looked up in a local `./fonts` folder first.
+- **Color emoji** become separate filament colors:
+  - COLR vector fonts (Twemoji, OpenMoji) keep their exact colors.
+  - Bitmap fonts (Apple Color Emoji, Noto Color Emoji, Blobmoji) are reduced to a few colors and traced into shapes.
+  - Skin tones, flags, and ZWJ sequences (like 👨‍👩‍👧) work.
+  - Emoji the main font lacks fall back to `--fallback-font`, or to an installed color emoji font.
+- **Filament-aware colors**:
+  - `--palette` maps every color to your loaded filaments, in slot order.
+  - `--max-colors` merges similar colors.
+  - `--letter-colors` cycles colors per letter.
+- **Stroke/outline**, built as real geometry, so the color regions never overlap.
+- **`--connect`** bridges separate pieces (letters, the dot on an i, ...) so the print comes out as one piece.
+- **Bold, italic, underline, strikethrough.** Real font faces or variable-font axes are used when available, and synthesized otherwise.
+- **`--flip`** to print face-down, so the visible side is the smooth surface that touched the build plate.
+- **Config files** (`--config sign.json`) to save a design and re-run it.
 
 ## Setup
 
 ```sh
 npm install
+./textrude.mjs --help
 ```
 
-## Usage
+## Examples
 
 ```sh
-# Multi-color 3MF: black text on a 2mm white outline, one piece, printed face-down
-./text2svg.mjs "Hello" -f "Arial Black" -s 20 -w 2 --connect --flip -o hello.3mf
+# Black text on a 2mm white outline, one piece, printed face-down
+textrude "Hello" -f "Arial Black" -s 20 -w 2 --connect --flip -o hello.3mf
+
+# Emoji from a specific font, with an outline around everything
+textrude "Hi 😀👍🏽🇺🇸" -f Helvetica --fallback-font ./fonts/twemoji.ttf -w 1.5 --connect -o hi.3mf
+
+# Map everything onto the 5 filaments loaded in slots 1-5
+textrude "🦄" -f ./fonts/apple.ttf -s 40 --palette white,black,pink,purple,gold -o unicorn.3mf
+
+# Rainbow letters
+textrude "Rainbow" -f "Arial Black" --letter-colors red,orange,gold,green,blue,purple -w 1.5 --connect -o rainbow.3mf
 
 # Raised text (3mm) on a 2mm outline
-./text2svg.mjs "Hello\nWorld" -f Helvetica -w 2 --connect --align center \
-  --height 2 --text-height 3 -o sign.3mf
-
-# Bridges in a third color/filament
-./text2svg.mjs "Name" -f "Arial Black" -w 1.5 --connect --bridge-color red -o tag.3mf
+textrude "Hello\nWorld" -f Helvetica -w 2 --connect --align center --height 2 --text-height 3 -o sign.3mf
 
 # Bold italic, underlined
-./text2svg.mjs "Hello" -f Helvetica -b -i -u -w 1.5 --connect -o hello.3mf
+textrude "Hello" -f Helvetica -b -i -u -w 1.5 --connect -o hello.3mf
 
-# Synthetic styles with custom amounts (works with any font)
-./text2svg.mjs "Hello" -f "Snell Roundhand" --embolden 0.5 --slant 8 -o hello.3mf
+# Font straight from a URL
+textrude "Hello" -f https://github.com/google/fonts/raw/main/ofl/pacifico/Pacifico-Regular.ttf -o hello.3mf
 
 # SVG output
-./text2svg.mjs "Hello" -f Helvetica -s 30 -w 1.5 --connect -o hello.svg
+textrude "Hello" -f Helvetica -s 30 -w 1.5 --connect -o hello.svg
 ```
 
-Run `./text2svg.mjs --help` for all options, and `--list-fonts` for installed font names.
+## Config files
+
+Any option can go in a JSON file, using either `--kebab-case` names or `camelCase`, plus `text`. Command-line flags override the file.
+
+```json
+{
+  "text": "Party time 🎉",
+  "font": "Arial Black",
+  "fallbackFont": "./fonts/twemoji.ttf",
+  "size": 25,
+  "strokeWidth": 1.5,
+  "connect": true,
+  "flip": true,
+  "palette": "black,white,red,gold"
+}
+```
+
+```sh
+textrude --config party.json -o party.3mf
+```
 
 ## Notes
 
 - Sizes are in mm. `--size` is the font's em size.
-- For `--bold` and `--italic`, the script tries these in order:
-  1. the family's real Bold/Italic face (searching installed fonts and the font file's own folder)
+- **Filaments**:
+  - With `--palette`, each part uses the slot of the palette color it was mapped to.
+  - Otherwise, parts are numbered 1, 2, 3, ... by distinct color. Override them with `--text-filament`, `--stroke-filament`, and `--bridge-filament`.
+  - The slicer uses whatever filament is loaded in each slot.
+- **Emoji colors**:
+  - Vector emoji keep every color by default, so a few emoji can easily use 10+ colors. Use `--palette` or `--max-colors` to fit your printer.
+  - Bitmap emoji are reduced to `--bitmap-colors` (default 8) before tracing.
+- **Bold and italic** try these in order:
+  1. the family's real Bold/Italic face
   2. the variable font's `wght`, `ital`, or `slnt` axis
-  3. a synthetic style: outlines thickened by 2% of the size, or a 12° slant
+  3. a synthetic style (outlines thickened by 2% of the size, or a 12° slant)
 
-  It prints which one it used. `--synthetic` forces the synthetic version, and `--embolden` and `--slant` set the amounts directly.
-- `--underline` and `--strikethrough` use the font's own position and thickness metrics. You can override them with `--underline-offset` and `--decoration-thickness`. These lines are part of the text color, and they join the letters in each line into one piece.
-- Filaments are numbered 1, 2, 3, ... in order of distinct color (text, then stroke, then bridges). Override them with `--text-filament`, `--stroke-filament`, and `--bridge-filament`. The slicer uses whatever colors are loaded in those filament slots.
+  `--synthetic` forces the synthetic version, and `--embolden` and `--slant` set the amounts directly.
 - If the bridges are the same color as the stroke (the default), they are merged into the stroke part.
 - With `--flip`, all parts start flat on the bed, so different heights only change the back of the print.
 - The object is placed at `--position` (default `100,100`). Press **A** (Arrange) in the slicer to re-center it.
+- Not supported yet: COLRv1 fonts (gradients) and SVG-in-OpenType fonts.

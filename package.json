@@ -1,15 +1,39 @@
 {
-  "name": "text2svg",
-  "version": "1.0.0",
-  "description": "Render text to an SVG of filled paths (with geometric stroke and island bridging) for 3D-printing slicers",
+  "name": "textrude",
+  "version": "0.1.0",
+  "description": "Turn text and color emoji into multi-color 3MF models (and SVGs) for 3D printing",
   "type": "module",
   "bin": {
-    "text2svg": "./text2svg.mjs"
+    "textrude": "./textrude.mjs"
   },
+  "files": [
+    "textrude.mjs",
+    "lib/"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TooTallNate/textrude.git"
+  },
+  "keywords": [
+    "3d-printing",
+    "3mf",
+    "svg",
+    "text",
+    "font",
+    "emoji",
+    "multi-color",
+    "slicer",
+    "orcaslicer",
+    "bambu"
+  ],
   "dependencies": {
     "clipper-lib": "^6.4.2",
     "fflate": "^0.8.3",
     "fontkit": "^2.0.4",
-    "libtess": "^1.2.2"
+    "libtess": "^1.2.2",
+    "pngjs": "^7.0.0"
   }
 }
