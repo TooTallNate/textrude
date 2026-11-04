@@ -1,0 +1,4 @@
+node_modules/
+# generated output
+/*.svg
+/*.3mf
