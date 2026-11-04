@@ -12,6 +12,9 @@ import { parseColor, toHex, lab, nearestIndex, reduceColors } from './lib/colors
 import { writeSvg } from './lib/svg.mjs';
 import { write3mf } from './lib/threemf.mjs';
 import { PRINTERS, projectSettings } from './lib/printers.mjs';
+import { renderPng } from './lib/raster.mjs';
+import { ui, setQuiet, formatBytes } from './lib/ui.mjs';
+import { bbox, SCALE } from './lib/geometry.mjs';
 
 const HELP = `Usage: textrude <text> [options]
 
@@ -79,6 +82,10 @@ Output
       --tolerance <n>        Max curve flattening error              [0.01]
       --precision <n>        Decimal places in SVG output            [3]
       --config <file>        Read options from a JSON file (CLI flags override it)
+      --no-preview           Don't show an image preview in the terminal
+                             [preview shown when stderr is a terminal]
+      --preview-png <file>   Also save the preview image as a PNG
+  -q, --quiet                Only print errors
   -h, --help                 Show this help
 
 SVG only
@@ -169,13 +176,16 @@ const OPTIONS = {
   'process-preset': { type: 'string' },
   'filament-preset': { type: 'string' },
   'bed-type': { type: 'string' },
+  preview: { type: 'boolean' },
+  'preview-png': { type: 'string' },
+  quiet: { type: 'boolean', short: 'q', default: false },
   help: { type: 'boolean', short: 'h', default: false },
 };
 
-const log = (msg) => console.error(msg);
+const log = ui.log;
 
 function fail(msg) {
-  console.error(`error: ${msg}`);
+  ui.error(msg);
   process.exit(1);
 }
 
@@ -185,7 +195,7 @@ let cli;
 try {
   // Parse without defaults so config-file values can sit between defaults and CLI flags.
   const noDefaults = Object.fromEntries(Object.entries(OPTIONS).map(([k, { default: _, ...v }]) => [k, v]));
-  cli = parseArgs({ allowPositionals: true, options: noDefaults });
+  cli = parseArgs({ allowPositionals: true, allowNegative: true, options: noDefaults });
 } catch (err) {
   fail(err.message);
 }
@@ -255,6 +265,8 @@ if (!text) {
   process.stderr.write(HELP);
   process.exit(1);
 }
+setQuiet(opt.quiet);
+ui.header(text);
 
 const o = {
   size: num('size'),
@@ -305,11 +317,14 @@ try {
 } catch (err) {
   fail(err.message);
 }
+const fontLabel = (f) => `${f.font.fullName}${f.color ? ui.chalk.dim(' (color)') : ''}`;
+ui.detail('font', fontLabel(fonts[0]));
+if (fonts.length > 1) ui.detail('fallback', fonts.slice(1).map(fontLabel).join(ui.chalk.dim(', ')));
 
 const getEmojiFont = () => {
   const f = findEmojiFont();
   if (!f) return null;
-  log(`using "${f.fullName}" for emoji (pass --fallback-font to choose another)`);
+  ui.detail('emoji', `${f.fullName} ${ui.chalk.dim('(installed; pass --fallback-font to choose another)')}`);
   return { font: f, color: true };
 };
 
@@ -364,7 +379,8 @@ if (opt.connect) {
     }
     connected = union(all, bridges);
     const remaining = components(connected).length;
-    log(`connected ${islands} islands with ${count} bridge(s)` + (remaining > 1 ? ` (warning: ${remaining} pieces remain)` : ''));
+    ui.success(`connected ${islands} pieces with ${count} bridge${count === 1 ? '' : 's'}`);
+    if (remaining > 1) ui.warn(`${remaining} separate pieces remain`);
   }
 }
 
@@ -461,8 +477,7 @@ if (format === '3mf') {
   // Slicers can't display emoji in object names.
   const name = text.replace(/\n/g, ' ').replace(/[\p{Extended_Pictographic}\p{Regional_Indicator}\u200d\ufe0f\u{1f3fb}-\u{1f3ff}\u{e0020}-\u{e007f}]/gu, '').replace(/\s+/g, ' ').trim() || 'textrude';
   data = write3mf(parts, name, position, opt.flip, projectConfig);
-  for (const p of parts) log(`part "${p.id}": filament ${p.filament}, height ${p.height}mm`);
-  if (profile) log(`printer: ${profile.label}`);
+  if (profile) ui.detail('printer', profile.label);
 } else if (format === 'svg') {
   const svgLayers = parts.map((p) => ({ ...p, id: p.id.replace(/[^\w-]+/g, '-') }));
   data = writeSvg(svgLayers, num('margin'), opt.units, Math.max(0, Math.round(num('precision'))), opt.flip);
@@ -470,9 +485,43 @@ if (format === '3mf') {
   fail('--format must be svg or 3mf');
 }
 
+// ------------------------------------------------------------------------- summary
+
+const showPreview = opt.preview ?? (process.stderr.isTTY && !opt.quiet);
+let previewPng = null;
+const preview = () => (previewPng ??= renderPng(parts.map((p) => ({ shape: p.shape, color: p.hex }))));
+if (opt['preview-png']) fs.writeFileSync(opt['preview-png'], preview());
+if (showPreview && !opt.quiet) {
+  try {
+    const { default: terminalImage } = await import('terminal-image');
+    const png = preview();
+    ui.blank();
+    ui.raw(await terminalImage.buffer(png, { width: '70%', height: '40%' }));
+  } catch (err) {
+    ui.warn(`preview failed: ${err.message}`);
+  }
+}
+
+const box = bbox(parts.flatMap((p) => p.shape));
+const maxHeight = Math.max(...parts.map((p) => p.height));
+const dims = [(box.maxX - box.minX) / SCALE, (box.maxY - box.minY) / SCALE];
+ui.blank();
+ui.detail('size', format === '3mf'
+  ? `${dims.map((d) => d.toFixed(1)).join(' × ')} × ${maxHeight} mm`
+  : `${dims.map((d) => d.toFixed(1)).join(' × ')} mm`);
+ui.detail('parts', `${parts.length} ${ui.chalk.dim(format === '3mf' ? '(one per color: filament, color, role, height, volume)' : '(one path per color)')}`);
+for (const p of parts) {
+  const slot = format === '3mf' ? ui.chalk.bold(String(p.filament).padStart(2)) + '  ' : '';
+  const vol = format === '3mf' ? ui.chalk.dim(`${(Math.abs(area(p.shape)) * p.height).toFixed(0)} mm³`.padStart(10)) : '';
+  const h = format === '3mf' ? `${p.height} mm`.padStart(7) : '';
+  ui.raw(`    ${ui.swatch(p.hex)}  ${slot}${p.hex}  ${p.roles.join(' + ').padEnd(16)}${h}${vol}`);
+}
+ui.blank();
+
 if (opt.output) {
   fs.writeFileSync(opt.output, data);
-  log(`wrote ${opt.output}`);
+  ui.success(`wrote ${ui.chalk.bold(opt.output)} ${ui.chalk.dim(`(${formatBytes(Buffer.byteLength(data))})`)}`);
+  ui.blank();
 } else {
   process.stdout.write(data);
 }

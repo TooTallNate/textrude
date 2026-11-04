@@ -35,6 +35,10 @@ The Snapmaker U1 has 4 toolheads. textrude warns if a design needs more, and `--
 - **Bold, italic, underline, strikethrough.** Real font faces or variable-font axes are used when available, and synthesized otherwise.
 - **`--flip`** to print face-down, so the visible side is the smooth surface that touched the build plate.
 - **Config files** (`--config sign.json`) to save a design and re-run it.
+- **Terminal preview**: shows an image of the result, plus a table of parts with their filament, color, height, and volume.
+  - Terminals with native image support (iTerm2, Kitty, WezTerm, ...) show a full image; others get colored blocks.
+  - `--preview-png out.png` saves the image.
+  - `--no-preview` turns it off, and `-q` prints only errors.
 
 ## Setup
 
