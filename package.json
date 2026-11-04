@@ -1,25 +1,15 @@
 {
   "name": "textrude",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "description": "Turn text and color emoji into multi-color 3MF models (and SVGs) for 3D printing",
-  "type": "module",
-  "bin": {
-    "textrude": "./textrude.mjs"
-  },
-  "files": [
-    "textrude.mjs",
-    "lib/"
-  ],
-  "scripts": {
-    "examples": "node scripts/examples.mjs"
-  },
-  "engines": {
-    "node": ">=22.4"
-  },
+  "license": "MIT",
+  "author": "Nathan Rajlich <n@n8.io>",
+  "homepage": "https://github.com/TooTallNate/textrude#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/TooTallNate/textrude.git"
   },
+  "bugs": "https://github.com/TooTallNate/textrude/issues",
   "keywords": [
     "3d-printing",
     "3mf",
@@ -30,8 +20,40 @@
     "multi-color",
     "slicer",
     "orcaslicer",
-    "bambu"
+    "bambu",
+    "ansi",
+    "cli"
   ],
+  "type": "module",
+  "bin": {
+    "textrude": "./dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.4"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p . --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "examples": "npm run build && node scripts/examples.mjs",
+    "prepack": "npm run build",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "npm run build && changeset publish"
+  },
   "dependencies": {
     "chalk": "^6.0.1",
     "clipper-lib": "^6.4.2",
@@ -42,6 +64,14 @@
     "terminal-image": "^5.0.1"
   },
   "devDependencies": {
-    "cli-highlight": "^2.1.11"
+    "@changesets/cli": "^3.0.3",
+    "@types/clipper-lib": "^6.4.0",
+    "@types/fontkit": "^2.0.9",
+    "@types/libtess": "^1.2.0",
+    "@types/node": "^26.6.6",
+    "@types/pngjs": "^6.0.5",
+    "cli-highlight": "^2.1.11",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
   }
 }

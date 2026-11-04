@@ -1,12 +1,26 @@
-// Color glyph support: COLR v0 vector layers, and CBDT / sbix bitmap glyphs (traced to shapes).
+/**
+ * Color glyphs: COLR v0 vector layers, and CBDT / sbix bitmap glyphs (decoded, reduced to a
+ * few colors, and traced into shapes).
+ *
+ * CBLC/CBDT and sbix are parsed directly from the font bytes: fontkit doesn't read CBDT, and
+ * its CBLC parsing is incomplete.
+ */
 import pngjs from 'pngjs';
-import { kmeans, lab, nearestIndex } from './colors.mjs';
+import { kmeans, lab, nearestIndex, type RGB } from './colors.js';
+import type { Contour } from './outline.js';
+import type { Font, Glyph } from './fontkit.js';
+
+export interface ColorLayer {
+  glyph: Glyph;
+  /** null = the text color */
+  color: RGB | null;
+}
 
 /**
- * COLR v0 layers for a glyph: [{ glyph, color }] in paint order (bottom first), where a null
- * color means "use the text color". Returns null if the glyph has no color layers.
+ * COLR v0 layers for a glyph, in paint order (bottom first). Returns null if the glyph has no
+ * color layers.
  */
-export function colrLayers(font, glyph) {
+export function colrLayers(font: Font, glyph: Glyph): ColorLayer[] | null {
   const t = font.directory.tables;
   if (!t.COLR || !t.CPAL) return null;
   const colr = font.COLR;
@@ -14,21 +28,22 @@ export function colrLayers(font, glyph) {
   const records = colr.baseGlyphRecord;
   let lo = 0;
   let hi = records.length - 1;
-  let base = null;
+  let base: (typeof records)[number] | null = null;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
-    if (glyph.id < records[mid].gid) hi = mid - 1;
-    else if (glyph.id > records[mid].gid) lo = mid + 1;
+    const rec = records[mid]!;
+    if (glyph.id < rec.gid) hi = mid - 1;
+    else if (glyph.id > rec.gid) lo = mid + 1;
     else {
-      base = records[mid];
+      base = rec;
       break;
     }
   }
   if (!base) return null;
   const paletteStart = cpal.colorRecordIndices?.[0] ?? 0;
-  const layers = [];
+  const layers: ColorLayer[] = [];
   for (let i = base.firstLayerIndex; i < base.firstLayerIndex + base.numLayers; i++) {
-    const rec = colr.layerRecords[i];
+    const rec = colr.layerRecords[i]!;
     const c = rec.paletteIndex === 0xffff ? null : cpal.colorRecords[paletteStart + rec.paletteIndex];
     if (c && c.alpha < 26) continue; // effectively invisible
     layers.push({ glyph: font._getBaseGlyph(rec.gid), color: c ? { r: c.red, g: c.green, b: c.blue } : null });
@@ -38,18 +53,48 @@ export function colrLayers(font, glyph) {
 
 // ------------------------------------------------------------------ bitmap glyphs
 
-const view = (font) => {
+interface RawImage {
+  png: Uint8Array;
+  ppem: number;
+  /** Pixel offset of the image's left edge from the glyph origin. */
+  left: number;
+  /** Pixel offset of the top edge above the baseline (CBDT)... */
+  top?: number;
+  /** ...or of the bottom edge (sbix). */
+  bottom?: number;
+}
+
+export interface Bitmap {
+  width: number;
+  height: number;
+  rgba: Uint8Array;
+  ppem: number;
+  /** Pixel offsets of the image's top-left corner from the glyph origin (y up). */
+  left: number;
+  top: number;
+  /** Color index per pixel (-1 = transparent), set by {@link quantizeBitmaps}. */
+  labels?: Int16Array;
+}
+
+const view = (font: Font) => {
   const b = font.stream.buffer;
   return new DataView(b.buffer, b.byteOffset, b.byteLength);
 };
 
-const strikeCache = new WeakMap();
+interface Strike {
+  arrayOffset: number;
+  numSubtables: number;
+  ppem: number;
+}
 
-function cbdtStrike(font) {
-  if (strikeCache.has(font)) return strikeCache.get(font);
+const strikeCache = new WeakMap<Font, Strike | null>();
+
+/** The largest CBLC strike (best quality). */
+function cbdtStrike(font: Font): Strike | null {
+  if (strikeCache.has(font)) return strikeCache.get(font)!;
   const dv = view(font);
-  const cblc = font.directory.tables.CBLC.offset;
-  let best = null;
+  const cblc = font.directory.tables.CBLC!.offset;
+  let best: Strike | null = null;
   for (let i = 0, n = dv.getUint32(cblc + 4); i < n; i++) {
     const o = cblc + 8 + i * 48;
     const s = { arrayOffset: dv.getUint32(o), numSubtables: dv.getUint32(o + 8), ppem: dv.getUint8(o + 44) };
@@ -59,10 +104,10 @@ function cbdtStrike(font) {
   return best;
 }
 
-function cbdtImage(font, gid) {
+function cbdtImage(font: Font, gid: number): RawImage | null {
   const dv = view(font);
-  const cblc = font.directory.tables.CBLC.offset;
-  const cbdt = font.directory.tables.CBDT.offset;
+  const cblc = font.directory.tables.CBLC!.offset;
+  const cbdt = font.directory.tables.CBDT!.offset;
   const strike = cbdtStrike(font);
   if (!strike) return null;
   const arr = cblc + strike.arrayOffset;
@@ -74,8 +119,8 @@ function cbdtImage(font, gid) {
     const indexFormat = dv.getUint16(st);
     const imageFormat = dv.getUint16(st + 2);
     const base = cbdt + dv.getUint32(st + 4);
-    let pos = null;
-    let big = null; // metrics stored in the index (formats 2 and 5)
+    let pos: number | null = null;
+    let big: number | null = null; // metrics stored in the index (formats 2 and 5)
     const k = gid - first;
     if (indexFormat === 1) {
       const a = dv.getUint32(st + 8 + k * 4);
@@ -106,7 +151,9 @@ function cbdtImage(font, gid) {
       }
     }
     if (pos == null) return null;
-    let left, top, png;
+    let left: number;
+    let top: number;
+    let png: [number, number];
     if (imageFormat === 17) {
       left = dv.getInt8(pos + 2);
       top = dv.getInt8(pos + 3);
@@ -127,17 +174,16 @@ function cbdtImage(font, gid) {
   return null;
 }
 
-function sbixImage(font, gid, depth = 0) {
+function sbixImage(font: Font, gid: number, depth = 0): RawImage | null {
   const dv = view(font);
-  const sbix = font.directory.tables.sbix.offset;
-  const numGlyphs = font.numGlyphs;
-  let strike = null;
+  const sbix = font.directory.tables.sbix!.offset;
+  let strike: { o: number; ppem: number } | null = null;
   for (let i = 0, n = dv.getUint32(sbix + 4); i < n; i++) {
     const o = sbix + dv.getUint32(sbix + 8 + i * 4);
     const ppem = dv.getUint16(o);
     if (!strike || ppem > strike.ppem) strike = { o, ppem };
   }
-  if (!strike || gid >= numGlyphs) return null;
+  if (!strike || gid >= font.numGlyphs) return null;
   const start = dv.getUint32(strike.o + 4 + gid * 4);
   const end = dv.getUint32(strike.o + 4 + (gid + 1) * 4);
   if (end - start <= 8) return null;
@@ -153,13 +199,10 @@ function sbixImage(font, gid, depth = 0) {
   };
 }
 
-/**
- * The bitmap for a glyph, decoded: { width, height, rgba, ppem, left, top } where left/top are
- * pixel offsets of the image's top-left corner from the glyph origin (y up). Null if none.
- */
-export function bitmapGlyph(font, gid) {
+/** The bitmap for a glyph (CBDT or sbix), decoded. Null if it has none. */
+export function bitmapGlyph(font: Font, gid: number): Bitmap | null {
   const t = font.directory.tables;
-  let img = null;
+  let img: RawImage | null = null;
   try {
     if (t.CBDT && t.CBLC) img = cbdtImage(font, gid);
     else if (t.sbix) img = sbixImage(font, gid);
@@ -174,21 +217,20 @@ export function bitmapGlyph(font, gid) {
     rgba: png.data,
     ppem: img.ppem,
     left: img.left,
-    top: img.top ?? img.bottom + png.height,
+    top: img.top ?? (img.bottom ?? 0) + png.height,
   };
 }
 
 /**
- * Reduce the opaque pixels of all bitmaps to a shared set of colors: either the given
- * palette, or `count` colors found by k-means. Sets `bitmap.labels` (-1 = transparent) and
- * returns the label colors.
+ * Reduce the opaque pixels of all bitmaps to one shared set of colors: the given palette, or
+ * `count` colors found by k-means. Sets each bitmap's `labels` and returns the label colors.
  */
-export function quantizeBitmaps(bitmaps, { palette, count }) {
-  const opaque = (bm, i) => bm.rgba[i * 4 + 3] >= 128;
-  const px = (bm, i) => ({ r: bm.rgba[i * 4], g: bm.rgba[i * 4 + 1], b: bm.rgba[i * 4 + 2] });
+export function quantizeBitmaps(bitmaps: Bitmap[], { palette, count }: { palette?: RGB[]; count: number }): RGB[] {
+  const opaque = (bm: Bitmap, i: number) => bm.rgba[i * 4 + 3]! >= 128;
+  const px = (bm: Bitmap, i: number): RGB => ({ r: bm.rgba[i * 4]!, g: bm.rgba[i * 4 + 1]!, b: bm.rgba[i * 4 + 2]! });
   let colors = palette;
   if (!colors) {
-    const sample = [];
+    const sample: RGB[] = [];
     const total = bitmaps.reduce((s, bm) => s + bm.width * bm.height, 0);
     const step = Math.max(1, Math.floor(total / 40000));
     for (const bm of bitmaps) {
@@ -197,12 +239,12 @@ export function quantizeBitmaps(bitmaps, { palette, count }) {
     colors = kmeans(sample, count);
   }
   const labs = colors.map(lab);
-  const cache = new Map();
+  const cache = new Map<number, number>();
   for (const bm of bitmaps) {
     const labels = new Int16Array(bm.width * bm.height).fill(-1);
     for (let i = 0; i < labels.length; i++) {
       if (!opaque(bm, i)) continue;
-      const key = (bm.rgba[i * 4] << 16) | (bm.rgba[i * 4 + 1] << 8) | bm.rgba[i * 4 + 2];
+      const key = (bm.rgba[i * 4]! << 16) | (bm.rgba[i * 4 + 1]! << 8) | bm.rgba[i * 4 + 2]!;
       let l = cache.get(key);
       if (l === undefined) cache.set(key, (l = nearestIndex(px(bm, i), labs)));
       labels[i] = l;
@@ -213,12 +255,12 @@ export function quantizeBitmaps(bitmaps, { palette, count }) {
 }
 
 /** Reassign isolated pixels (at most one same-colored neighbor) to their most common neighbor. */
-function despeckle(labels, w, h) {
+function despeckle(labels: Int16Array, w: number, h: number): Int16Array {
   const out = labels.slice();
-  const counts = new Map();
+  const counts = new Map<number, number>();
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      const l = labels[y * w + x];
+      const l = labels[y * w + x]!;
       counts.clear();
       let same = 0;
       for (let dy = -1; dy <= 1; dy++) {
@@ -226,7 +268,7 @@ function despeckle(labels, w, h) {
           if (!dx && !dy) continue;
           const nx = x + dx;
           const ny = y + dy;
-          const n = nx < 0 || ny < 0 || nx >= w || ny >= h ? -1 : labels[ny * w + nx];
+          const n = nx < 0 || ny < 0 || nx >= w || ny >= h ? -1 : labels[ny * w + nx]!;
           if (n === l) same++;
           counts.set(n, (counts.get(n) || 0) + 1);
         }
@@ -246,14 +288,15 @@ function despeckle(labels, w, h) {
  * upsampled `S`x with bilinear voting first, which smooths the pixel staircase on diagonals
  * while keeping the colors an exact partition (no gaps or overlaps).
  */
-export function traceBitmap(bm, unitsPerEm, S = 3) {
-  const { width: w, height: h, labels } = bm;
+export function traceBitmap(bm: Bitmap, unitsPerEm: number, S = 3): Map<number, Contour[]> {
+  const { width: w, height: h } = bm;
+  const labels = bm.labels!;
   const u = unitsPerEm / bm.ppem;
   const W = w * S;
   const H = h * S;
   const grid = new Int16Array(W * H);
-  const lab = (x, y) => (x < 0 || y < 0 || x >= w || y >= h ? -1 : labels[y * w + x]);
-  const score = new Map();
+  const labelAt = (x: number, y: number) => (x < 0 || y < 0 || x >= w || y >= h ? -1 : labels[y * w + x]!);
+  const score = new Map<number, number>();
   for (let sy = 0; sy < H; sy++) {
     const v = (sy + 0.5) / S - 0.5;
     const y0 = Math.floor(v);
@@ -263,11 +306,11 @@ export function traceBitmap(bm, unitsPerEm, S = 3) {
       const x0 = Math.floor(uu);
       const fx = uu - x0;
       score.clear();
-      const add = (l, wgt) => score.set(l, (score.get(l) || 0) + wgt);
-      add(lab(x0, y0), (1 - fx) * (1 - fy));
-      add(lab(x0 + 1, y0), fx * (1 - fy));
-      add(lab(x0, y0 + 1), (1 - fx) * fy);
-      add(lab(x0 + 1, y0 + 1), fx * fy);
+      const add = (l: number, wgt: number) => score.set(l, (score.get(l) || 0) + wgt);
+      add(labelAt(x0, y0), (1 - fx) * (1 - fy));
+      add(labelAt(x0 + 1, y0), fx * (1 - fy));
+      add(labelAt(x0, y0 + 1), (1 - fx) * fy);
+      add(labelAt(x0 + 1, y0 + 1), fx * fy);
       let best = -1;
       let bw = -1;
       for (const [l, wgt] of score) if (wgt > bw) [best, bw] = [l, wgt];
@@ -282,7 +325,7 @@ export function traceBitmap(bm, unitsPerEm, S = 3) {
     for (let sy = 0; sy + 1 < H; sy++) {
       for (let sx = 0; sx + 1 < W; sx++) {
         const i = sy * W + sx;
-        const [a, b, c, d] = [grid[i], grid[i + 1], grid[i + W], grid[i + W + 1]];
+        const [a, b, c, d] = [grid[i]!, grid[i + 1]!, grid[i + W]!, grid[i + W + 1]!];
         if ((a === d && b !== a && c !== a) || (b === c && a !== b && d !== b)) {
           if (a === d) grid[i + 1] = a;
           else grid[i] = b;
@@ -293,34 +336,40 @@ export function traceBitmap(bm, unitsPerEm, S = 3) {
   }
 
   // Horizontal runs, merged vertically when identical, become rectangles.
-  const out = new Map();
-  const rect = (l, x0, x1, y0, y1) => {
+  const out = new Map<number, Contour[]>();
+  const rect = (l: number, x0: number, x1: number, y0: number, y1: number) => {
     const X0 = (bm.left + x0 / S) * u;
     const X1 = (bm.left + x1 / S) * u;
     const Y0 = (bm.top - y0 / S) * u;
     const Y1 = (bm.top - y1 / S) * u;
-    if (!out.has(l)) out.set(l, []);
-    out.get(l).push([[X0, Y0], [X1, Y0], [X1, Y1], [X0, Y1]]);
+    let list = out.get(l);
+    if (!list) out.set(l, (list = []));
+    list.push([
+      [X0, Y0],
+      [X1, Y0],
+      [X1, Y1],
+      [X0, Y1],
+    ]);
   };
-  let open = new Map(); // "label,x0,x1" -> start row
+  let open = new Map<string, number>(); // "label,x0,x1" -> start row
   for (let sy = 0; sy <= H; sy++) {
-    const next = new Map();
+    const next = new Map<string, number>();
     if (sy < H) {
       let sx = 0;
       while (sx < W) {
-        const l = grid[sy * W + sx];
+        const l = grid[sy * W + sx]!;
         let ex = sx + 1;
         while (ex < W && grid[sy * W + ex] === l) ex++;
         if (l >= 0) {
           const key = `${l},${sx},${ex}`;
-          next.set(key, open.has(key) ? open.get(key) : sy);
+          next.set(key, open.get(key) ?? sy);
           open.delete(key);
         }
         sx = ex;
       }
     }
     for (const [key, start] of open) {
-      const [l, x0, x1] = key.split(',').map(Number);
+      const [l, x0, x1] = key.split(',').map(Number) as [number, number, number];
       rect(l, x0, x1, start, sy);
     }
     open = next;

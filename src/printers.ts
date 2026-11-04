@@ -10,7 +10,23 @@
  * nx-archive 3MF export.)
  */
 
-export const PRINTERS = {
+export interface PrinterProfile {
+  label: string;
+  /** Printer system preset (`printer_settings_id`). */
+  printer: string;
+  /** Process system preset (`print_settings_id`). */
+  process: string;
+  /** Filament system preset (`filament_settings_id`), used for every filament. */
+  filament: string;
+  /** `curr_bed_type` */
+  bedType: string;
+  /** Bed center (mm), where the model is placed. */
+  bedCenter?: [number, number];
+  /** Number of toolheads / filament slots, for warnings. */
+  toolheads?: number;
+}
+
+export const PRINTERS: Record<string, PrinterProfile> = {
   // Preset names from Snapmaker Orca's resources/profiles/Snapmaker/{machine,process,filament}.
   // Printable area X 0.5-270.5, Y 1-271.
   'snapmaker-u1': {
@@ -25,7 +41,7 @@ export const PRINTERS = {
 };
 
 /** `Metadata/project_settings.config` selecting the profile's stock presets with these colors. */
-export function projectSettings(profile, filamentColors) {
+export function projectSettings(profile: PrinterProfile, filamentColors: string[]): string {
   return JSON.stringify(
     {
       printer_settings_id: profile.printer,

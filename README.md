@@ -54,13 +54,42 @@ The Snapmaker U1 has 4 toolheads. textrude warns if a design needs more, and `--
   - `--preview-png out.png` saves the image.
   - `--no-preview` turns it off, and `-q` prints only errors.
 
-## Setup
+## Install
+
+Requires Node.js 22.4 or newer.
 
 ```sh
-npm install
-npm link        # puts `textrude` on your PATH (or run ./textrude.mjs directly)
+npm install -g textrude
 textrude --help
+
+# or without installing:
+npx textrude "Hello" -o hello.3mf
 ```
+
+## JavaScript API
+
+The CLI is a thin wrapper around `textrude()`, which takes the same options (in camelCase):
+
+```ts
+import fs from 'node:fs';
+import { textrude } from 'textrude';
+
+const result = await textrude('Hello 😀', {
+  font: 'Arial Black',
+  fallbackFonts: ['./fonts/twemoji.ttf'],
+  strokeWidth: 1.5,
+  connect: true,
+  onLog: (e) => console.error(e.level, e.message),
+});
+
+for (const part of result.parts) console.log(part.filament, part.color, part.roles);
+
+fs.writeFileSync('hello.3mf', result.to3MF({ printer: 'snapmaker-u1', flip: true }));
+fs.writeFileSync('hello.svg', result.toSVG());
+fs.writeFileSync('hello.png', result.toPNG());
+```
+
+Invalid input throws a `TextrudeError`.
 
 ## Examples
 
@@ -226,6 +255,24 @@ textrude --config party.json -o party.3mf
 - With `--flip`, all parts start flat on the bed, so different heights only change the back of the print.
 - The object is placed at `--position`. By default that's the printer's bed center, or `100,100` without a printer profile. Press **A** (Arrange) in the slicer to re-center it.
 - Not supported yet: COLRv1 fonts (gradients) and SVG-in-OpenType fonts.
+
+## Development
+
+```sh
+npm install
+npm run build        # compile src/ (TypeScript) to dist/
+npm run typecheck
+npm test             # vitest
+node dist/bin.js --help
+```
+
+- **Tests** run on small font subsets in `test/fixtures/fonts`, so they don't need any system fonts.
+  - Every rendered design is checked for watertight, manifold, outward-facing meshes.
+  - A few regression tests use macOS system fonts and are skipped elsewhere; CI runs them on macOS.
+- **Releases** are managed with [Changesets](https://github.com/changesets/changesets):
+  1. Add a changeset (`npx changeset`) to any pull request that changes the package.
+  2. On `main`, the release workflow opens a "Version Packages" pull request.
+  3. Merging it publishes to npm through trusted publishing (OIDC), with no npm token.
 
 ## Credits
 

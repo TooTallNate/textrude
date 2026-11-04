@@ -138,13 +138,13 @@ for (const ex of EXAMPLES) {
   const cliArgs = [...args, '--margin', '3', '--no-preview', '-q', '-o', svgPath];
   if (ex.pipe) {
     // Text from a shell pipeline on stdin.
-    execSync(`${ex.pipe} | ${[process.execPath, path.join(root, 'textrude.mjs'), ...cliArgs].map(quote).join(' ')}`, {
+    execSync(`${ex.pipe} | ${[process.execPath, path.join(root, 'dist', 'bin.js'), ...cliArgs].map(quote).join(' ')}`, {
       cwd: root,
       shell: '/bin/sh',
       stdio: ['ignore', 'inherit', 'inherit'],
     });
   } else {
-    execFileSync(process.execPath, [path.join(root, 'textrude.mjs'), ...cliArgs], {
+    execFileSync(process.execPath, [path.join(root, 'dist', 'bin.js'), ...cliArgs], {
       cwd: root,
       stdio: ['ignore', 'inherit', 'inherit'],
     });

@@ -8,3 +8,5 @@ node_modules/
 /*.3mf
 
 .DS_Store
+dist/
+coverage/

@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS also runs the regression tests that need its system fonts.
+        os: [ubuntu-latest, macos-latest]
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Smoke test the built CLI
+        run: |
+          node dist/bin.js --version
+          node dist/bin.js "Hello 😀" -f test/fixtures/fonts/inter-static/Inter-Regular.ttf \
+            --fallback-font test/fixtures/fonts/twemoji-subset.ttf -w 1.5 --connect \
+            --printer snapmaker-u1 -o hello.3mf
+          printf '\033[31mRed\n\033[34mBlue' | node dist/bin.js -f test/fixtures/fonts/Inter-Variable.ttf -b > ansi.svg
+
+      - name: Check the package contents
+        run: npm pack --dry-run

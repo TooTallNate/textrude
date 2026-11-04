@@ -1,0 +1,48 @@
+name: Release
+
+# On every push to main, changesets/action either:
+# - opens / updates the "Version Packages" pull request (when there are pending changesets), or
+# - publishes to npm (when that pull request has been merged and the version is unpublished).
+#
+# Publishing uses npm trusted publishing (OIDC), so there's no NPM_TOKEN secret. The package's
+# trusted publisher on npmjs.com must point at this repository and this workflow file
+# (release.yml).
+
+on:
+  push:
+    branches: [main]
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  release:
+    name: Version Packages PR or publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the version commit, tags, and GitHub releases
+      pull-requests: write # open / update the "Version Packages" PR
+      id-token: write # npm trusted publishing (OIDC)
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false # never use caching in release builds
+
+      # Trusted publishing requires npm >= 11.5.1.
+      - name: Update npm
+        run: npm install -g npm@latest
+
+      - run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - uses: changesets/action@v2
+        with:
+          version-script: npm run version-packages
+          publish-script: npm run release
+          commit-message: Version Packages
+          pr-title: Version Packages
