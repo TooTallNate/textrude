@@ -12,14 +12,16 @@ import { parseColor, toHex, lab, nearestIndex, reduceColors } from './lib/colors
 import { writeSvg } from './lib/svg.mjs';
 import { write3mf } from './lib/threemf.mjs';
 import { PRINTERS, projectSettings } from './lib/printers.mjs';
+import { parseAnsi } from './lib/ansi.mjs';
 import { renderPng } from './lib/raster.mjs';
 import { ui, setQuiet, formatBytes } from './lib/ui.mjs';
 import { bbox, SCALE, roundedRect } from './lib/geometry.mjs';
 
-const HELP = `Usage: textrude <text> [options]
+const HELP = `Usage: textrude [text] [options]
 
 Turn text (including color emoji) into a multi-color 3MF model or an SVG for 3D printing.
-Use "\\n" in the text for line breaks.
+Text comes from the arguments, a config file, or stdin (piped, or "-"). Newlines start new
+lines, and ANSI color codes color the text, e.g. syntax-highlighted code or lolcat output.
 
 Font
   -f, --font <name|path|url> Font name, file (ttf/otf/ttc/woff/woff2), or URL  [Arial]
@@ -128,7 +130,10 @@ Examples
   textrude "Hello" -f "Arial Black" -w 2 --connect --flip --printer snapmaker-u1 -o hello.3mf
   textrude "I ❤️ 3D printing 🎉" -f Helvetica --fallback-font ./fonts/twemoji.ttf -w 1.5 --connect -o emoji.3mf
   textrude "Rainbow" -f "Arial Black" --letter-colors red,orange,gold,green,blue,purple -o rainbow.3mf
-  textrude "🦄" -f ./fonts/apple.ttf -s 40 --palette white,black,pink,purple -o unicorn.3mf
+  textrude "🦄" -f ./fonts/openmoji.ttf -s 40 --palette white,black,pink,purple -o unicorn.3mf
+  textrude $'Hello\\nWorld' --align center -o hello.3mf
+  FORCE_COLOR=1 npx cli-highlight hello.c | textrude -f Menlo --background '#1e1e1e' -o code.3mf
+  echo "Rainbow" | lolcat -f | textrude -f "Arial Black" -o rainbow.3mf
 `;
 
 const OPTIONS = {
@@ -274,7 +279,20 @@ if (opt['list-fonts']) {
   console.log(rows.sort().join('\n'));
   process.exit(0);
 }
-const text = (cli.positionals.length ? cli.positionals.join(' ') : config.text ?? '').replace(/\\n/g, '\n');
+// Text: arguments, then the config file, then stdin (when piped, or given as "-").
+let input;
+if (cli.positionals.length && !(cli.positionals.length === 1 && cli.positionals[0] === '-')) input = cli.positionals.join(' ');
+else if (!cli.positionals.length && config.text != null) input = String(config.text);
+else if (cli.positionals[0] === '-' || !process.stdin.isTTY) {
+  // (Read as a stream: readFileSync(0) fails with EAGAIN on pipes that aren't ready yet.)
+  const chunks = [];
+  for await (const chunk of process.stdin) chunks.push(chunk);
+  input = Buffer.concat(chunks).toString('utf8').replace(/\r?\n$/, '');
+}
+else input = '';
+// ANSI escapes become per-character colors; tabs expand to 4 spaces.
+const ansi = parseAnsi(input.replace(/\r\n?/g, '\n').replace(/\t/g, '    '));
+const text = ansi.text;
 if (!text) {
   process.stderr.write(HELP);
   process.exit(1);
@@ -283,6 +301,7 @@ setQuiet(opt.quiet);
 ui.header(text);
 
 const o = {
+  charColors: ansi.hasColor ? ansi.colors : undefined,
   size: num('size'),
   align: choice('align', ['left', 'center', 'right']),
   lineSpacing: num('line-spacing'),
@@ -374,7 +393,7 @@ if (strokeWidth > 0) {
 const layers = [];
 for (const r of textRegions) {
   const c = r.color === 'fg' ? textColor : r.color;
-  if (c && r.shape.length) layers.push({ role: r.color === 'fg' ? 'text' : 'color', color: c, shape: r.shape });
+  if (c && r.shape.length) layers.push({ role: r.color === 'fg' || r.user ? 'text' : 'color', color: c, shape: r.shape });
 }
 if (strokeColor && stroke.length) layers.push({ role: 'stroke', color: strokeColor, shape: stroke });
 if (!layers.length) fail('nothing visible (text and stroke colors are both "none")');

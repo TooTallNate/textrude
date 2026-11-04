@@ -40,5 +40,8 @@
     "libtess": "^1.2.2",
     "pngjs": "^7.0.0",
     "terminal-image": "^5.0.1"
+  },
+  "devDependencies": {
+    "cli-highlight": "^2.1.11"
   }
 }

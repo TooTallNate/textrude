@@ -28,6 +28,13 @@ The Snapmaker U1 has 4 toolheads. textrude warns if a design needs more, and `--
   - Bitmap fonts (Apple Color Emoji, Noto Color Emoji, Blobmoji) are reduced to a few colors and traced into shapes.
   - Skin tones, flags, and ZWJ sequences (like 👨‍👩‍👧) work.
   - Emoji the main font lacks fall back to `--fallback-font`, or to an installed color emoji font.
+- **Text from arguments, a config file, or stdin**:
+  - Pipe text in, or pass `-` to read stdin.
+  - Newlines start new lines: pipe a file, or use the shell's `$'Hello\nWorld'`.
+  - Tabs become 4 spaces.
+- **ANSI colors** become filament colors: syntax-highlighted code, `lolcat -f` output, or any `\e[31m`-style colored text.
+  - Basic, 256-color, and truecolor codes are supported.
+  - Other escape sequences are ignored.
 - **Filament-aware colors**:
   - `--palette` maps every color to your loaded filaments, in slot order.
   - `--max-colors` merges similar colors.
@@ -131,10 +138,26 @@ textrude Rainbow -f "Arial Black" --letter-colors red,orange,gold,green,blue,pur
 ### Multiple lines, centered
 
 ```sh
-textrude "Hello\nWorld" -f Helvetica -b -w 2 --connect --align center -o hello-world.3mf
+textrude $'Hello\nWorld' -f Helvetica -b -w 2 --connect --align center -o hello-world.3mf
 ```
 
 ![Multiple lines, centered](examples/multiline.svg)
+
+### Syntax-highlighted code: ANSI colors on stdin become filament colors
+
+```sh
+FORCE_COLOR=1 npx cli-highlight examples/hello.c | textrude -f Menlo -s 8 -c "#d4d4d4" --background "#1e1e1e" --background-radius 3 --background-padding 4 -o hello-c.3mf
+```
+
+![Syntax-highlighted code: ANSI colors on stdin become filament colors](examples/code.svg)
+
+### Any ANSI-colored text works, including 256-color and truecolor codes
+
+```sh
+printf '\033[91mRed \033[92mGreen \033[94mBlue \033[38;2;255;140;0mOrange' | textrude -f "Arial Black" -w 1.5 --connect -o ansi.3mf
+```
+
+![Any ANSI-colored text works, including 256-color and truecolor codes](examples/ansi.svg)
 
 ### Bold, italic, and underlined
 
