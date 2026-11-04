@@ -14,7 +14,7 @@ import { write3mf } from './lib/threemf.mjs';
 import { PRINTERS, projectSettings } from './lib/printers.mjs';
 import { renderPng } from './lib/raster.mjs';
 import { ui, setQuiet, formatBytes } from './lib/ui.mjs';
-import { bbox, SCALE } from './lib/geometry.mjs';
+import { bbox, SCALE, roundedRect } from './lib/geometry.mjs';
 
 const HELP = `Usage: textrude <text> [options]
 
@@ -54,7 +54,7 @@ Text
 
 Stroke
   -w, --stroke-width <n>     Stroke (outline) width in mm (0 = none) [0]
-      --stroke-color <css>   Stroke color                            [#ffffff]
+      --stroke-color <css>   Stroke color             [--background color, else #ffffff]
       --stroke-align <a>     outside | center | inside               [outside]
       --stroke-join <j>      round | miter | square                  [round]
       --miter-limit <n>      Miter limit                             [4]
@@ -63,6 +63,13 @@ Connecting
       --connect              Bridge disconnected islands into one piece
       --bridge-width <n>     Bridge thickness   [stroke width, or 10% of size]
       --bridge-color <css>   Bridge color       [stroke color, or text color]
+
+Background
+      --background <css>     Solid plate behind the whole design, in this color. It
+                             holds every piece together, so no bridges are needed
+      --background-padding <n>  Space around the design in mm        [25% of size]
+      --background-radius <n>   Corner radius in mm (like CSS: a huge radius makes
+                             a pill, or a circle for a square)         [0]
 
 Colors & filaments
       --palette <list>       Your filament colors, in slot order, e.g.
@@ -107,9 +114,11 @@ SVG only
       --text-height <n>      Height of text (and emoji) parts        [--height]
       --stroke-height <n>    Height of the stroke part               [--height]
       --bridge-height <n>    Height of the bridges part              [--height]
+      --background-height <n>  Height of the background part         [--height]
       --text-filament <n>    Filament number for the text            [auto]
       --stroke-filament <n>  Filament number for the stroke          [auto]
       --bridge-filament <n>  Filament number for bridges             [auto]
+      --background-filament <n>  Filament number for the background  [auto]
       --position <x,y>       Bed position of the object's center
                              [printer's bed center, else 100,100]
                              (without --palette, filaments are numbered 1, 2, 3...
@@ -151,6 +160,11 @@ const OPTIONS = {
   connect: { type: 'boolean', default: false },
   'bridge-width': { type: 'string' },
   'bridge-color': { type: 'string' },
+  background: { type: 'string' },
+  'background-padding': { type: 'string' },
+  'background-radius': { type: 'string' },
+  'background-height': { type: 'string' },
+  'background-filament': { type: 'string' },
   palette: { type: 'string' },
   'max-colors': { type: 'string' },
   'bitmap-colors': { type: 'string', default: '8' },
@@ -290,7 +304,11 @@ const join = { round: JoinType.jtRound, miter: JoinType.jtMiter, square: JoinTyp
 const miterLimit = num('miter-limit');
 const minArea = (o.tolerance * 2) ** 2;
 const textColor = color('color');
-const strokeColor = color('stroke-color');
+const backgroundColor = opt.background != null ? color('background') : null;
+// With a background, the stroke defaults to the background color (so it blends into the plate),
+// unless --stroke-color is given explicitly.
+const explicitStroke = cli.values['stroke-color'] != null || config['stroke-color'] != null;
+const strokeColor = backgroundColor && !explicitStroke ? backgroundColor : color('stroke-color');
 const maxColors = optNum('max-colors');
 
 // --------------------------------------------------------------------------- fonts
@@ -361,8 +379,32 @@ for (const r of textRegions) {
 if (strokeColor && stroke.length) layers.push({ role: 'stroke', color: strokeColor, shape: stroke });
 if (!layers.length) fail('nothing visible (text and stroke colors are both "none")');
 
+// Background: a (rounded) plate behind everything, which also holds all the pieces together.
 let connected = null;
-if (opt.connect) {
+if (backgroundColor) {
+  const all = union(...layers.map((l) => l.shape));
+  const b = bbox(all);
+  const pad = opt['background-padding'] != null ? num('background-padding') : o.size * 0.25;
+  const plate = roundedRect(
+    b.minX / SCALE - pad, b.minY / SCALE - pad, b.maxX / SCALE + pad, b.maxY / SCALE + pad,
+    opt['background-radius'] != null ? num('background-radius') : 0, o.tolerance,
+  );
+  // Share a part with a same-colored stroke/text layer of the same height: carve the plate
+  // around the *other* layers (rather than unioning two edge-adjacent shapes, which can leave
+  // seams).
+  const height = optNum('background-height') ?? num('height');
+  const sameAs = (l) => toHex(l.color) === toHex(backgroundColor) && (optNum(`${l.role}-height`) ?? num('height')) === height;
+  const target = layers.find((l) => l.role === 'stroke' && sameAs(l)) ?? layers.find((l) => l.role === 'text' && sameAs(l));
+  if (target) {
+    const others = layers.filter((l) => l !== target).flatMap((l) => l.shape);
+    target.shape = clean(difference(plate, others), minArea);
+    target.roles = [target.role, 'background'];
+  } else {
+    layers.push({ role: 'background', color: backgroundColor, shape: clean(difference(plate, all), minArea) });
+  }
+  connected = plate;
+  if (opt.connect) ui.info(ui.chalk.dim('background holds everything together, so no bridges are needed'));
+} else if (opt.connect) {
   const all = union(...layers.map((l) => l.shape));
   const width = opt['bridge-width'] != null ? num('bridge-width') : strokeWidth > 0 ? strokeWidth : o.size * 0.1;
   const { bridges, count, islands } = makeBridges(all, width, o.tolerance);
@@ -409,8 +451,8 @@ if (o.palette) {
   for (const l of layers) l.color = map.get(toHex(l.color));
 }
 
-const heightOf = { text: 'text-height', color: 'text-height', stroke: 'stroke-height', bridge: 'bridge-height' };
-const filamentOpt = { text: 'text-filament', stroke: 'stroke-filament', bridge: 'bridge-filament' };
+const heightOf = { text: 'text-height', color: 'text-height', stroke: 'stroke-height', bridge: 'bridge-height', background: 'background-height' };
+const filamentOpt = { text: 'text-filament', stroke: 'stroke-filament', bridge: 'bridge-filament', background: 'background-filament' };
 
 // One part per (color, height).
 let parts = [];
@@ -419,9 +461,11 @@ for (const l of layers) {
   const height = optNum(heightOf[l.role]) ?? num('height');
   let part = parts.find((p) => p.hex === hex && p.height === height);
   if (!part) parts.push((part = { hex, color: hex, height, roles: [], shapes: [], filament: filamentOf?.(l) }));
-  if (!part.roles.includes(l.role)) part.roles.push(l.role);
+  for (const role of l.roles ?? [l.role]) {
+    if (!part.roles.includes(role)) part.roles.push(role);
+    if (filamentOpt[role] && opt[filamentOpt[role]] != null) part.filament = num(filamentOpt[role]);
+  }
   part.shapes.push(l.shape);
-  if (filamentOpt[l.role] && opt[filamentOpt[l.role]] != null) part.filament = num(filamentOpt[l.role]);
 }
 const hexOrder = [...new Set(parts.map((p) => p.hex))];
 for (const p of parts) {
@@ -510,11 +554,12 @@ ui.detail('size', format === '3mf'
   ? `${dims.map((d) => d.toFixed(1)).join(' × ')} × ${maxHeight} mm`
   : `${dims.map((d) => d.toFixed(1)).join(' × ')} mm`);
 ui.detail('parts', `${parts.length} ${ui.chalk.dim(format === '3mf' ? '(one per color: filament, color, role, height, volume)' : '(one path per color)')}`);
+const roleWidth = Math.max(16, ...parts.map((p) => p.roles.join(' + ').length + 2));
 for (const p of parts) {
   const slot = format === '3mf' ? ui.chalk.bold(String(p.filament).padStart(2)) + '  ' : '';
   const vol = format === '3mf' ? ui.chalk.dim(`${(Math.abs(area(p.shape)) * p.height).toFixed(0)} mm³`.padStart(10)) : '';
   const h = format === '3mf' ? `${p.height} mm`.padStart(7) : '';
-  ui.raw(`    ${ui.swatch(p.hex)}  ${slot}${p.hex}  ${p.roles.join(' + ').padEnd(16)}${h}${vol}`);
+  ui.raw(`    ${ui.swatch(p.hex)}  ${slot}${p.hex}  ${p.roles.join(' + ').padEnd(roleWidth)}${h}${vol}`);
 }
 ui.blank();
 

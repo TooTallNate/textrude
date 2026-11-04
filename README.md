@@ -32,6 +32,11 @@ The Snapmaker U1 has 4 toolheads. textrude warns if a design needs more, and `--
   - `--letter-colors` cycles colors per letter.
 - **Stroke/outline**, built as real geometry, so the color regions never overlap.
 - **`--connect`** bridges separate pieces (letters, the dot on an i, ...) so the print comes out as one piece.
+- **`--background`** puts a solid plate behind the design instead, which also holds everything together.
+  - `--background-radius` rounds the corners. Like CSS `border-radius`, a huge radius gives a pill shape.
+  - `--background-padding` sets the space around the design.
+  - With a background, the stroke defaults to the background color, so it blends into the plate as one part.
+  - Pass `--stroke-color` for a separately colored outline.
 - **Bold, italic, underline, strikethrough.** Real font faces or variable-font axes are used when available, and synthesized otherwise.
 - **`--flip`** to print face-down, so the visible side is the smooth surface that touched the build plate.
 - **Config files** (`--config sign.json`) to save a design and re-run it.
@@ -58,6 +63,15 @@ textrude "Hi 😀👍🏽🇺🇸" -f Helvetica --fallback-font ./fonts/twemoji.
 
 # Map everything onto the 5 filaments loaded in slots 1-5
 textrude "🦄" -f ./fonts/apple.ttf -s 40 --palette white,black,pink,purple,gold -o unicorn.3mf
+
+# White text on a navy pill-shaped plate
+textrude "Hello 😀" -f "Arial Black" -c white --background navy --background-radius 999 -o pill.3mf
+
+# White text with a gold outline, on a navy pill
+textrude "Stroke" -f "Arial Black" -c white -w 2 --stroke-color gold --background navy --background-radius 999 -o outlined.3mf
+
+# Raised black text (3mm) on a 2mm gold plate with rounded corners
+textrude "Raised" -f "Arial Black" --background gold --background-radius 3 --height 2 --text-height 3 -o raised.3mf
 
 # Rainbow letters
 textrude "Rainbow" -f "Arial Black" --letter-colors red,orange,gold,green,blue,purple -w 1.5 --connect -o rainbow.3mf
