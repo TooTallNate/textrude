@@ -3,8 +3,20 @@
 Turn text and color emoji into **multi-color 3MF models** for 3D printing. Each color becomes its own part, already assigned to a filament. Opens directly in OrcaSlicer, Snapmaker Orca, and Bambu Studio. It can also export plain SVGs.
 
 ```sh
-textrude "I ❤️ 3D printing 🎉" -f Helvetica -w 1.5 --connect --flip -o sign.3mf
+textrude "I ❤️ 3D printing 🎉" -f Helvetica -w 1.5 --connect --flip --printer snapmaker-u1 -o sign.3mf
 ```
+
+## Printer profiles (filament colors)
+
+OrcaSlicer-based slicers only read filament colors from a 3MF's project settings, and those must name the printer's real slicer presets. Otherwise opening the file would reset the printer's settings. So pass a printer profile:
+
+- **Built-in:** `--printer snapmaker-u1`. You can also set it once with `export TEXTRUDE_PRINTER=snapmaker-u1`.
+- **Any other printer:** give the exact preset names from your slicer with `--printer-preset`, `--process-preset`, and `--filament-preset`.
+- **Overrides:** `--filament-preset`, `--process-preset`, and `--bed-type` also override the built-in profile's values.
+
+With a profile, the 3MF opens with one filament per color, each already set to its color. The model is centered on that printer's bed. Without one, each part is still assigned to its filament number, but the slicer keeps its current filament list and colors.
+
+The Snapmaker U1 has 4 toolheads. textrude warns if a design needs more, and `--max-colors 4` or `--palette` brings it down.
 
 ## Features
 
@@ -98,5 +110,5 @@ textrude --config party.json -o party.3mf
   `--synthetic` forces the synthetic version, and `--embolden` and `--slant` set the amounts directly.
 - If the bridges are the same color as the stroke (the default), they are merged into the stroke part.
 - With `--flip`, all parts start flat on the bed, so different heights only change the back of the print.
-- The object is placed at `--position` (default `100,100`). Press **A** (Arrange) in the slicer to re-center it.
+- The object is placed at `--position`. By default that's the printer's bed center, or `100,100` without a printer profile. Press **A** (Arrange) in the slicer to re-center it.
 - Not supported yet: COLRv1 fonts (gradients) and SVG-in-OpenType fonts.

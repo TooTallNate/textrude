@@ -11,6 +11,7 @@ import { JoinType, union, difference, intersection, offset, clean, components, m
 import { parseColor, toHex, lab, nearestIndex, reduceColors } from './lib/colors.mjs';
 import { writeSvg } from './lib/svg.mjs';
 import { write3mf } from './lib/threemf.mjs';
+import { PRINTERS, projectSettings } from './lib/printers.mjs';
 
 const HELP = `Usage: textrude <text> [options]
 
@@ -85,6 +86,16 @@ SVG only
       --units <u>            SVG width/height unit                   [mm]
 
 3MF only (one part per color, each assigned its own filament)
+      --printer <id>         Printer profile, so the 3MF carries its filament colors and
+                             opens with the right printer: ${Object.keys(PRINTERS).join(', ')}
+                             [$TEXTRUDE_PRINTER]. Without one, the slicer can't know
+                             the colors and keeps its current filament list
+      --printer-preset <s>   Or any printer: the slicer's exact printer preset name
+                             (also needs --process-preset and --filament-preset)
+      --process-preset <s>   Process preset name                     [from profile]
+      --filament-preset <s>  Filament preset name, e.g. "Snapmaker PLA Matte @U1"
+                                                                     [from profile]
+      --bed-type <s>         Bed type, e.g. "Textured PEI Plate"     [from profile]
       --height <n>           Height of every part in mm              [2]
       --text-height <n>      Height of text (and emoji) parts        [--height]
       --stroke-height <n>    Height of the stroke part               [--height]
@@ -92,12 +103,13 @@ SVG only
       --text-filament <n>    Filament number for the text            [auto]
       --stroke-filament <n>  Filament number for the stroke          [auto]
       --bridge-filament <n>  Filament number for bridges             [auto]
-      --position <x,y>       Bed position of the object's center     [100,100]
+      --position <x,y>       Bed position of the object's center
+                             [printer's bed center, else 100,100]
                              (without --palette, filaments are numbered 1, 2, 3...
                              by distinct color)
 
 Examples
-  textrude "Hello" -f "Arial Black" -w 2 --connect --flip -o hello.3mf
+  textrude "Hello" -f "Arial Black" -w 2 --connect --flip --printer snapmaker-u1 -o hello.3mf
   textrude "I ❤️ 3D printing 🎉" -f Helvetica --fallback-font ./fonts/twemoji.ttf -w 1.5 --connect -o emoji.3mf
   textrude "Rainbow" -f "Arial Black" --letter-colors red,orange,gold,green,blue,purple -o rainbow.3mf
   textrude "🦄" -f ./fonts/apple.ttf -s 40 --palette white,black,pink,purple -o unicorn.3mf
@@ -151,7 +163,12 @@ const OPTIONS = {
   'text-filament': { type: 'string' },
   'stroke-filament': { type: 'string' },
   'bridge-filament': { type: 'string' },
-  position: { type: 'string', default: '100,100' },
+  position: { type: 'string' },
+  printer: { type: 'string' },
+  'printer-preset': { type: 'string' },
+  'process-preset': { type: 'string' },
+  'filament-preset': { type: 'string' },
+  'bed-type': { type: 'string' },
   help: { type: 'boolean', short: 'h', default: false },
 };
 
@@ -406,10 +423,46 @@ if (opt['single-path']) {
 const format = opt.format ?? (/\.3mf$/i.test(opt.output || '') ? '3mf' : 'svg');
 let data;
 if (format === '3mf') {
-  const position = String(opt.position).split(',').map(Number);
+  // Printer profile: a built-in one, or custom preset names.
+  let profile = null;
+  const printerId = opt.printer ?? (opt['printer-preset'] ? null : process.env.TEXTRUDE_PRINTER || null);
+  if (printerId) {
+    profile = PRINTERS[printerId];
+    if (!profile) fail(`unknown --printer "${printerId}" (known: ${Object.keys(PRINTERS).join(', ')}; or use --printer-preset)`);
+  } else if (opt['printer-preset']) {
+    if (!opt['process-preset'] || !opt['filament-preset']) fail('--printer-preset also needs --process-preset and --filament-preset');
+    profile = { label: opt['printer-preset'], printer: opt['printer-preset'], process: opt['process-preset'], filament: opt['filament-preset'], bedType: 'Textured PEI Plate' };
+  }
+  if (profile) {
+    profile = { ...profile };
+    if (opt['process-preset']) profile.process = opt['process-preset'];
+    if (opt['filament-preset']) profile.filament = opt['filament-preset'];
+    if (opt['bed-type']) profile.bedType = opt['bed-type'];
+  }
+
+  const position = opt.position != null ? String(opt.position).split(',').map(Number) : profile?.bedCenter ?? [100, 100];
   if (position.length !== 2 || position.some((v) => !Number.isFinite(v))) fail('--position must be "x,y"');
-  data = write3mf(parts, text.replace(/\n/g, ' '), position, opt.flip);
+
+  // Filament slots 1..N with their colors (palette slots keep their colors even if unused).
+  let projectConfig = null;
+  const count = Math.max(...parts.map((p) => p.filament), o.palette?.length ?? 0);
+  if (profile) {
+    const filamentColors = Array.from({ length: count }, (_, i) =>
+      parts.find((p) => p.filament === i + 1)?.hex ?? (o.palette?.[i] ? toHex(o.palette[i]) : '#ffffff'),
+    );
+    projectConfig = projectSettings(profile, filamentColors);
+    if (profile.toolheads && count > profile.toolheads) {
+      log(`warning: ${count} filaments, but the ${profile.label} has ${profile.toolheads} toolheads (use --palette or --max-colors ${profile.toolheads})`);
+    }
+  } else if (count > 1) {
+    log('note: no --printer given, so filament colors aren\'t embedded (the slicer keeps its current filament list)');
+  }
+
+  // Slicers can't display emoji in object names.
+  const name = text.replace(/\n/g, ' ').replace(/[\p{Extended_Pictographic}\p{Regional_Indicator}\u200d\ufe0f\u{1f3fb}-\u{1f3ff}\u{e0020}-\u{e007f}]/gu, '').replace(/\s+/g, ' ').trim() || 'textrude';
+  data = write3mf(parts, name, position, opt.flip, projectConfig);
   for (const p of parts) log(`part "${p.id}": filament ${p.filament}, height ${p.height}mm`);
+  if (profile) log(`printer: ${profile.label}`);
 } else if (format === 'svg') {
   const svgLayers = parts.map((p) => ({ ...p, id: p.id.replace(/[^\w-]+/g, '-') }));
   data = writeSvg(svgLayers, num('margin'), opt.units, Math.max(0, Math.round(num('precision'))), opt.flip);
