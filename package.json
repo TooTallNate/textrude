@@ -10,6 +10,9 @@
     "textrude.mjs",
     "lib/"
   ],
+  "scripts": {
+    "examples": "node scripts/examples.mjs"
+  },
   "engines": {
     "node": ">=22.4"
   },

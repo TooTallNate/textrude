@@ -6,3 +6,5 @@ node_modules/
 # generated output
 /*.svg
 /*.3mf
+
+.DS_Store
