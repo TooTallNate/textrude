@@ -1,6 +1,6 @@
 {
   "name": "textrude",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Turn text and color emoji into multi-color 3MF models (and SVGs) for 3D printing",
   "license": "MIT",
   "author": "Nathan Rajlich <n@n8.io>",
