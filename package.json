@@ -41,6 +41,7 @@
     "dist"
   ],
   "workspaces": [
+    ".",
     "examples/browser"
   ],
   "engines": {
