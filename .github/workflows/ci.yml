@@ -25,24 +25,26 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: pnpm/action-setup@v6
+
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
-          cache: npm
+          cache: pnpm
 
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
 
       - name: Type check
-        run: npm run typecheck
+        run: pnpm run typecheck
 
       - name: Type check the browser demo
-        run: npm run typecheck -w examples/browser
+        run: pnpm -F textrude-browser-demo run typecheck
 
       - name: Build
-        run: npm run build
+        run: pnpm run build
 
       - name: Test
-        run: npm test
+        run: pnpm test
 
       - name: Smoke test the built CLI
         run: |
@@ -53,4 +55,4 @@ jobs:
           printf '\033[31mRed\n\033[34mBlue' | node dist/bin.js -f test/fixtures/fonts/Inter-Variable.ttf -b > ansi.svg
 
       - name: Check the package contents
-        run: npm pack --dry-run
+        run: pnpm pack --dry-run

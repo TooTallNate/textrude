@@ -6,7 +6,9 @@ name: Release
 #
 # Publishing uses npm trusted publishing (OIDC), so there's no NPM_TOKEN secret. The package's
 # trusted publisher on npmjs.com must point at this repository and this workflow file
-# (release.yml).
+# (release.yml). `changeset publish` runs `pnpm publish`, which does the OIDC exchange itself
+# (pnpm >= 11.11). No registry-url is given to setup-node: the placeholder auth token it would
+# write to .npmrc would make pnpm skip OIDC.
 
 on:
   push:
@@ -25,24 +27,21 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: pnpm/action-setup@v6
+
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
           package-manager-cache: false # never use caching in release builds
 
-      # Trusted publishing requires npm >= 11.5.1.
-      - name: Update npm
-        run: npm install -g npm@latest
-
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
 
       - name: Test
-        run: npm test
+        run: pnpm test
 
       - uses: changesets/action@v2
         with:
-          version-script: npm run version-packages
-          publish-script: npm run release
+          version-script: pnpm run version-packages
+          publish-script: pnpm run release
           commit-message: Version Packages
           pr-title: Version Packages

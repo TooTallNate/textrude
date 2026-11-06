@@ -40,9 +40,6 @@
   "files": [
     "dist"
   ],
-  "workspaces": [
-    "examples/browser"
-  ],
   "engines": {
     "node": ">=22.4"
   },
@@ -51,11 +48,11 @@
     "typecheck": "tsc -p . --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "examples": "npm run build && node scripts/examples.mjs",
-    "prepack": "npm run build",
+    "examples": "pnpm run build && node scripts/examples.mjs",
+    "prepack": "pnpm run build",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "release": "npm run build && changeset publish"
+    "release": "pnpm run build && changeset publish"
   },
   "dependencies": {
     "chalk": "^6.0.1",
@@ -74,5 +71,6 @@
     "cli-highlight": "^2.1.11",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0"
-  }
+  },
+  "packageManager": "pnpm@12.9.1"
 }

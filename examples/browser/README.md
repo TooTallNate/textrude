@@ -11,15 +11,15 @@ A single-page web app for designing textrude prints, with a live 3D preview (thr
 From the repository root:
 
 ```sh
-npm install
-npm run dev -w examples/browser
+pnpm install
+pnpm -F textrude-browser-demo dev
 ```
 
 The app imports the library's TypeScript source directly (see the aliases in `vite.config.ts`), so library changes show up without a build step.
 
-`npm run dev` and `npm run build` first run `scripts/download-fonts.mjs`, which downloads the fonts listed in `fonts.json` into `public/fonts` (skipping ones already there).
+`dev` and `build` first run `scripts/download-fonts.mjs`, which downloads the fonts listed in `fonts.json` into `public/fonts` (skipping ones already there).
 
 ```sh
-npm run build -w examples/browser   # static site in examples/browser/dist
-npm run typecheck -w examples/browser
+pnpm -F textrude-browser-demo build       # static site in examples/browser/dist
+pnpm -F textrude-browser-demo typecheck
 ```
