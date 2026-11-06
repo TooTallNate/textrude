@@ -41,8 +41,8 @@ ctx.onmessage = async (e: MessageEvent<WorkerRequest>) => {
   } else if (msg.type === 'render') {
     const logs: LogEvent[] = (sink = []);
     try {
-      const start = performance.now();
       const [main, ...fallbacks] = await Promise.all([font(msg.font), ...msg.fallbackFonts.map(font)]);
+      const start = performance.now();
       const result = await textrude(msg.text, { ...msg.options, font: main, fallbackFonts: fallbacks, onLog });
       const meshes = result.toMeshes();
       last = result;
