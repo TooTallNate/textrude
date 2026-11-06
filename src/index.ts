@@ -11,6 +11,8 @@
  */
 export { textrude, plainName } from './render.js';
 export type { TextrudeOptions, TextrudeResult, Part, Role, UsedFont, LogEvent, LogLevel, ThreeMfExportOptions } from './render.js';
+export { arrange } from './plate.js';
+export type { ArrangeOptions, Plate, PlateObject } from './plate.js';
 export { PRINTERS, projectSettings } from './printers.js';
 export type { PrinterProfile } from './printers.js';
 export { parseAnsi } from './ansi.js';

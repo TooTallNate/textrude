@@ -22,6 +22,8 @@ export interface PrinterProfile {
   bedType: string;
   /** Bed center (mm), where the model is placed. */
   bedCenter?: [number, number];
+  /** Printable area (mm), for laying out multiple texts. */
+  bedSize?: [number, number];
   /** Number of toolheads / filament slots, for warnings. */
   toolheads?: number;
 }
@@ -36,6 +38,7 @@ export const PRINTERS: Record<string, PrinterProfile> = {
     filament: 'Snapmaker PLA Basic @U1',
     bedType: 'Textured PEI Plate',
     bedCenter: [135.5, 136],
+    bedSize: [270, 270],
     toolheads: 4,
   },
 };

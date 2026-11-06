@@ -156,10 +156,17 @@ export function extrude(shape: Shape, height: number, cx: number, cy: number, mi
   return { verts, tris };
 }
 
-export interface ThreeMfOptions {
-  /** Object (and plate) name. */
+/** A separate object on the plate, made of one part per color. */
+export interface MeshObject {
+  /** Object name shown in the slicer. */
   name: string;
-  /** Bed position of the object's center (mm). */
+  parts: MeshPart[];
+}
+
+export interface ThreeMfOptions {
+  /** Plate name. */
+  name: string;
+  /** Bed position of the center of all the objects (mm). */
   position: [number, number];
   /** Mirror horizontally (for face-down printing). */
   mirror?: boolean;
@@ -167,57 +174,87 @@ export interface ThreeMfOptions {
   projectConfig?: string | null;
 }
 
-/** Build the 3MF archive. */
-export function write3mf(parts: MeshPart[], { name, position, mirror = false, projectConfig }: ThreeMfOptions): Uint8Array {
-  const b = bbox(parts.flatMap((p) => p.shape));
-  const cx = (b.minX + b.maxX) / 2 / SCALE;
-  const cy = (b.minY + b.maxY) / 2 / SCALE;
+/**
+ * Build the 3MF archive. Every object keeps its place relative to the others (shapes share one
+ * coordinate space), and the whole group is centered on `position`.
+ */
+export function write3mf(objects: MeshObject[], { name, position, mirror = false, projectConfig }: ThreeMfOptions): Uint8Array {
+  const center = (shape: Shape): [number, number] => {
+    const b = bbox(shape);
+    return [(b.minX + b.maxX) / 2 / SCALE, (b.minY + b.maxY) / 2 / SCALE];
+  };
+  const [gx, gy] = center(objects.flatMap((o) => o.parts.flatMap((p) => p.shape)));
   const f = (v: number) => fmt(v, 4);
+  const sx = mirror ? -1 : 1;
 
-  const objects = parts.map((part, i) => {
-    const { verts, tris } = extrude(part.shape, part.height, cx, cy, mirror);
-    const v = verts.map(([x, y, z]) => `<vertex x="${f(x)}" y="${f(y)}" z="${f(z)}"/>`).join('');
-    const t = tris.map(([a, b2, c]) => `<triangle v1="${a}" v2="${b2}" v3="${c}"/>`).join('');
-    return `  <object id="${i + 1}" name="${xmlEsc(part.id)}" type="model"><mesh><vertices>${v}</vertices><triangles>${t}</triangles></mesh></object>`;
-  });
-  const asmId = parts.length + 1;
+  let nextId = 1;
+  const resources: string[] = [];
+  const items: string[] = [];
+  const configs: string[] = [];
+  const instances: string[] = [];
+  for (const obj of objects) {
+    // Each object's mesh is centered on itself; its build item places it on the bed.
+    const [cx, cy] = center(obj.parts.flatMap((p) => p.shape));
+    const ids = obj.parts.map((part) => {
+      const id = nextId++;
+      const { verts, tris } = extrude(part.shape, part.height, cx, cy, mirror);
+      const v = verts.map(([x, y, z]) => `<vertex x="${f(x)}" y="${f(y)}" z="${f(z)}"/>`).join('');
+      const t = tris.map(([a, b2, c]) => `<triangle v1="${a}" v2="${b2}" v3="${c}"/>`).join('');
+      resources.push(`  <object id="${id}" name="${xmlEsc(part.id)}" type="model"><mesh><vertices>${v}</vertices><triangles>${t}</triangles></mesh></object>`);
+      return id;
+    });
+    const asmId = nextId++;
+    resources.push(
+      `  <object id="${asmId}" name="${xmlEsc(obj.name)}" type="model"><components>` +
+        ids.map((id) => `<component objectid="${id}"/>`).join('') +
+        '</components></object>',
+    );
+    const x = position[0] + sx * (cx - gx);
+    const y = position[1] - (cy - gy);
+    items.push(`<item objectid="${asmId}" transform="1 0 0 0 1 0 0 0 1 ${f(x)} ${f(y)} 0"/>`);
+
+    // Orca / Bambu Studio read per-part names and filament ("extruder") assignments from here.
+    configs.push(
+      `  <object id="${asmId}">`,
+      `    <metadata key="name" value="${xmlEsc(obj.name)}"/>`,
+      `    <metadata key="extruder" value="${obj.parts[0]?.filament ?? 1}"/>`,
+      ...obj.parts.flatMap((p, i) => [
+        `    <part id="${ids[i]}" subtype="normal_part">`,
+        `      <metadata key="name" value="${xmlEsc(p.id)}"/>`,
+        `      <metadata key="extruder" value="${p.filament}"/>`,
+        '    </part>',
+      ]),
+      '  </object>',
+    );
+    instances.push(
+      '    <model_instance>',
+      `      <metadata key="object_id" value="${asmId}"/>`,
+      '      <metadata key="instance_id" value="0"/>',
+      '    </model_instance>',
+    );
+  }
+
   const model = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">',
     ' <metadata name="Application">textrude</metadata>',
     ' <resources>',
-    ...objects,
-    `  <object id="${asmId}" name="${xmlEsc(name)}" type="model"><components>` +
-      parts.map((_, i) => `<component objectid="${i + 1}"/>`).join('') +
-      '</components></object>',
+    ...resources,
     ' </resources>',
-    ` <build><item objectid="${asmId}" transform="1 0 0 0 1 0 0 0 1 ${f(position[0])} ${f(position[1])} 0"/></build>`,
+    ` <build>${items.join('')}</build>`,
     '</model>',
   ].join('\n');
 
-  // Orca / Bambu Studio read per-part names and filament ("extruder") assignments from here.
   const settings = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<config>',
-    `  <object id="${asmId}">`,
-    `    <metadata key="name" value="${xmlEsc(name)}"/>`,
-    `    <metadata key="extruder" value="${parts[0]?.filament ?? 1}"/>`,
-    ...parts.flatMap((p, i) => [
-      `    <part id="${i + 1}" subtype="normal_part">`,
-      `      <metadata key="name" value="${xmlEsc(p.id)}"/>`,
-      `      <metadata key="extruder" value="${p.filament}"/>`,
-      '    </part>',
-    ]),
-    '  </object>',
+    ...configs,
     // Without a plate entry, Orca names the plate "Untitled".
     '  <plate>',
     '    <metadata key="plater_id" value="1"/>',
     `    <metadata key="plater_name" value="${xmlEsc(name)}"/>`,
     '    <metadata key="locked" value="false"/>',
-    '    <model_instance>',
-    `      <metadata key="object_id" value="${asmId}"/>`,
-    '      <metadata key="instance_id" value="0"/>',
-    '    </model_instance>',
+    ...instances,
     '  </plate>',
     '</config>',
   ].join('\n');

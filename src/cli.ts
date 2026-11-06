@@ -1,7 +1,8 @@
 /** The `textrude` command-line interface. */
 import fs from 'node:fs';
 import { parseArgs, type ParseArgsConfig } from 'node:util';
-import { textrude, type TextrudeOptions, type ThreeMfExportOptions, type LogEvent } from './render.js';
+import { textrude, type TextrudeOptions, type TextrudeResult, type ThreeMfExportOptions, type LogEvent } from './render.js';
+import { arrange } from './plate.js';
 import { PRINTERS, type PrinterProfile } from './printers.js';
 import { systemFonts } from './fonts.js';
 import { area } from './geometry.js';
@@ -9,10 +10,19 @@ import { TextrudeError } from './errors.js';
 import { ui, setQuiet, formatBytes } from './ui.js';
 
 const HELP = `Usage: textrude [text] [options]
+       textrude [shared options] -t <text> [options] -t <text> [options] ...
 
 Turn text (including color emoji) into a multi-color 3MF model or an SVG for 3D printing.
 Text comes from the arguments, a config file, or stdin (piped, or "-"). Newlines start new
 lines, and ANSI color codes color the text, e.g. syntax-highlighted code or lolcat output.
+
+Multiple texts
+  -t, --text <text>          Add a separate object (repeatable; "-" reads stdin). Options
+                             before the first --text apply to all of them; options after a
+                             --text apply to that text only (output options, like -o and
+                             --printer, can go anywhere). Objects are laid out in rows
+                             that fit the printer's bed (else 200 mm wide)
+      --gap <n>              Space between objects in mm             [5]
 
 Font
   -f, --font <name|path|url> Font name, file (ttf/otf/ttc/woff/woff2), or URL  [Arial]
@@ -125,11 +135,14 @@ Examples
   textrude "Rainbow" -f "Arial Black" --letter-colors red,orange,gold,green,blue,purple -o rainbow.3mf
   textrude "🦄" -f ./fonts/openmoji.ttf -s 40 --palette white,black,pink,purple -o unicorn.3mf
   textrude $'Hello\\nWorld' --align center -o hello.3mf
+  textrude -f "Arial Black" -w 2 --connect -t Alice -c red -t Bob -c blue -t Carol -o names.3mf
   FORCE_COLOR=1 npx cli-highlight hello.c | textrude -f Menlo --background '#1e1e1e' -o code.3mf
   echo "Rainbow" | lolcat -f | textrude -f "Arial Black" -o rainbow.3mf
 `;
 
 const OPTIONS = {
+  text: { type: 'string', short: 't' },
+  gap: { type: 'string' },
   font: { type: 'string', short: 'f' },
   'font-index': { type: 'string' },
   'fallback-font': { type: 'string', multiple: true },
@@ -220,60 +233,115 @@ async function readAll(stream: NodeJS.ReadableStream): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-/** Parse flags and a config file into option values (CLI flags override the config). */
-function parse(argv: string[]): { values: Values; positionals: string[]; text?: string } {
-  let parsed;
+/** Options for the whole output, which can't differ per text. */
+const SHARED_ONLY = new Set<string>([
+  'list-fonts', 'palette', 'output', 'format', 'flip', 'config', 'margin', 'units', 'precision', 'position', 'gap',
+  'printer', 'printer-preset', 'process-preset', 'filament-preset', 'bed-type', 'preview', 'preview-png', 'quiet', 'version', 'help',
+]);
+
+/** One text to render, with its own option values (shared values already merged in). */
+interface Job {
+  text: string;
+  values: Values;
+}
+
+function parseFlags(args: string[]) {
   try {
-    parsed = parseArgs({ args: argv, allowPositionals: true, allowNegative: true, options: OPTIONS });
+    return parseArgs({ args, allowPositionals: true, allowNegative: true, options: OPTIONS, tokens: true });
   } catch (err) {
     throw new TextrudeError((err as Error).message);
   }
+}
+
+/** Option values from a config object (camelCase or kebab-case keys). */
+function configValues(raw: Record<string, unknown>, file: string, item: boolean): { values: Values; text?: string; texts?: unknown } {
   const values: Values = {};
   let text: string | undefined;
-  if (parsed.values.config) {
+  let texts: unknown;
+  for (const [k, v] of Object.entries(raw)) {
+    const key = k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+    if (key === 'text') {
+      text = String(v);
+      continue;
+    }
+    if (key === 'texts' && !item) {
+      texts = v;
+      continue;
+    }
+    if (!(key in OPTIONS)) throw new TextrudeError(`unknown option "${k}" in ${file}`);
+    if (item && SHARED_ONLY.has(key)) throw new TextrudeError(`"${k}" applies to every text, so it can't be set inside "texts" in ${file}`);
+    const def = OPTIONS[key as OptionName];
+    const list = Array.isArray(v) ? v : [v];
+    if ('multiple' in def) values[key as OptionName] = list.map(String);
+    else if (def.type === 'boolean') values[key as OptionName] = Boolean(v);
+    else values[key as OptionName] = Array.isArray(v) ? v.join(',') : String(v);
+  }
+  return { values, text, texts };
+}
+
+/**
+ * Parse flags and a config file into option values (CLI flags override the config).
+ *
+ * Every `-t/--text` starts a separate text: flags before the first one are shared, and flags
+ * after one apply to that text only (except output options, which apply everywhere). A config file's `texts` array works the same way, with its
+ * top-level options shared. Texts given with `-t` replace the config's.
+ */
+function parse(argv: string[]): { values: Values; positionals: string[]; text?: string; jobs: Job[] | null } {
+  const all = parseFlags(argv);
+  const starts = [...new Set(all.tokens.filter((t) => t.kind === 'option' && t.name === 'text').map((t) => t.index))];
+  const shared = starts.length ? parseFlags(argv.slice(0, starts[0])) : all;
+  const sharedValues: Values = { ...shared.values };
+
+  // Output options (-o, --printer, ...) can't differ per text, so they count wherever they are.
+  const cliItems = starts.map((start, k): Job => {
+    const segment = parseFlags(argv.slice(start, starts[k + 1] ?? argv.length));
+    const { text: itemText, ...itemValues } = segment.values;
+    if (segment.positionals.length) {
+      throw new TextrudeError(`unexpected argument "${segment.positionals[0]}" after --text ${JSON.stringify(itemText)} (quote texts that contain spaces)`);
+    }
+    const values: Values = {};
+    for (const [key, value] of Object.entries(itemValues)) {
+      if (SHARED_ONLY.has(key)) sharedValues[key as OptionName] = value;
+      else values[key as OptionName] = value;
+    }
+    return { text: String(itemText), values };
+  });
+
+  const values: Values = {};
+  let text: string | undefined;
+  let configItems: Job[] | null = null;
+  const file = sharedValues.config == null ? undefined : String(sharedValues.config);
+  if (file) {
     let raw: Record<string, unknown>;
     try {
-      raw = JSON.parse(fs.readFileSync(parsed.values.config, 'utf8')) as Record<string, unknown>;
+      raw = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
     } catch (err) {
-      throw new TextrudeError(`could not read config ${parsed.values.config}: ${(err as Error).message}`);
+      throw new TextrudeError(`could not read config ${file}: ${(err as Error).message}`);
     }
-    for (const [k, v] of Object.entries(raw)) {
-      const key = k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
-      if (key === 'text') {
-        text = String(v);
-        continue;
-      }
-      if (!(key in OPTIONS)) throw new TextrudeError(`unknown option "${k}" in ${parsed.values.config}`);
-      const def = OPTIONS[key as OptionName];
-      const list = Array.isArray(v) ? v : [v];
-      if ('multiple' in def) values[key as OptionName] = list.map(String);
-      else if (def.type === 'boolean') values[key as OptionName] = Boolean(v);
-      else values[key as OptionName] = Array.isArray(v) ? v.join(',') : String(v);
+    const config = configValues(raw, file, false);
+    Object.assign(values, config.values);
+    text = config.text;
+    if (config.texts !== undefined) {
+      if (text !== undefined) throw new TextrudeError(`${file} has both "text" and "texts"`);
+      if (!Array.isArray(config.texts) || !config.texts.length) throw new TextrudeError(`"texts" in ${file} must be a non-empty array`);
+      configItems = config.texts.map((entry, i) => {
+        if (typeof entry === 'string') return { text: entry, values: {} };
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new TextrudeError(`"texts" in ${file}: entry ${i + 1} must be a string or an object`);
+        const item = configValues(entry as Record<string, unknown>, file, true);
+        if (item.text === undefined) throw new TextrudeError(`"texts" in ${file}: entry ${i + 1} has no "text"`);
+        return { text: item.text, values: item.values };
+      });
     }
   }
-  Object.assign(values, parsed.values);
-  return { values, positionals: parsed.positionals, text };
+  Object.assign(values, sharedValues);
+
+  const items = cliItems.length ? cliItems : configItems;
+  const jobs = items && items.map((item) => ({ text: item.text, values: { ...values, ...item.values } }));
+  return { values, positionals: shared.positionals, text, jobs };
 }
 
-/** Run the CLI. Returns the process exit code. */
-export async function run(argv: string[], io: RunOptions = {}): Promise<number> {
-  try {
-    return await main(argv, io);
-  } catch (err) {
-    if (err instanceof TextrudeError) {
-      ui.error(err.message);
-      return 1;
-    }
-    throw err;
-  }
-}
-
-async function main(argv: string[], io: RunOptions): Promise<number> {
-  const env = io.env ?? process.env;
-  const write = io.stdout ?? ((d: string | Uint8Array) => process.stdout.write(d));
-  const { values: v, positionals, text: configText } = parse(argv);
-  setQuiet(Boolean(v.quiet));
-
+/** Typed accessors for option values. */
+function reader(v: Values) {
   const str = (name: OptionName) => (v[name] == null ? undefined : String(v[name]));
   const list = (name: OptionName) => (v[name] == null ? undefined : ([] as unknown[]).concat(v[name]).map(String));
   const num = (name: OptionName): number | undefined => {
@@ -290,43 +358,19 @@ async function main(argv: string[], io: RunOptions): Promise<number> {
     return match;
   };
   const csv = (name: OptionName) => str(name)?.split(',').map((s) => s.trim());
+  return { str, list, num, choice, csv };
+}
 
-  if (v.help) {
-    write(HELP);
-    return 0;
-  }
-  if (v.version) {
-    write(`${version()}\n`);
-    return 0;
-  }
-  if (v['list-fonts']) {
-    const rows = systemFonts().map(({ file, index, names }) => `${[...names].sort().join(' | ')}    (${file}${index ? `#${index}` : ''})`);
-    write(rows.sort().join('\n') + '\n');
-    return 0;
-  }
-
-  // Text: arguments, then the config file, then stdin (when piped, or given as "-").
-  let input = '';
-  const useStdin = positionals.length === 1 && positionals[0] === '-';
-  if (positionals.length && !useStdin) input = positionals.join(' ');
-  else if (!positionals.length && configText != null) input = configText;
-  else if (useStdin || io.stdin != null || !process.stdin.isTTY) {
-    const source = io.stdin ?? process.stdin;
-    input = (typeof source === 'string' ? source : await readAll(source)).replace(/\r?\n$/, '');
-  }
-  if (!input) {
-    process.stderr.write(HELP);
-    return 1;
-  }
-
+/** The design options for one text. */
+function renderOptions(v: Values): TextrudeOptions {
+  const { str, list, num, choice, csv } = reader(v);
   const variations: Record<string, number> = {};
   for (const spec of list('variation') ?? []) {
     const [k, val] = spec.split('=');
     if (!k || val == null || !Number.isFinite(Number(val))) throw new TextrudeError(`--variation must look like "wght=700"`);
     variations[k.trim()] = Number(val);
   }
-
-  const options: TextrudeOptions = {
+  return {
     font: str('font'),
     fontIndex: num('font-index'),
     fallbackFonts: list('fallback-font'),
@@ -374,20 +418,94 @@ async function main(argv: string[], io: RunOptions): Promise<number> {
     backgroundFilament: num('background-filament'),
     onLog: (e: LogEvent) => ui.log(e),
   };
+}
+
+/** Run the CLI. Returns the process exit code. */
+export async function run(argv: string[], io: RunOptions = {}): Promise<number> {
+  try {
+    return await main(argv, io);
+  } catch (err) {
+    if (err instanceof TextrudeError) {
+      ui.error(err.message);
+      return 1;
+    }
+    throw err;
+  }
+}
+
+async function main(argv: string[], io: RunOptions): Promise<number> {
+  const env = io.env ?? process.env;
+  const write = io.stdout ?? ((d: string | Uint8Array) => process.stdout.write(d));
+  const { values: v, positionals, text: configText, jobs: textJobs } = parse(argv);
+  setQuiet(Boolean(v.quiet));
+  const { str, num } = reader(v);
+
+  if (v.help) {
+    write(HELP);
+    return 0;
+  }
+  if (v.version) {
+    write(`${version()}\n`);
+    return 0;
+  }
+  if (v['list-fonts']) {
+    const rows = systemFonts().map(({ file, index, names }) => `${[...names].sort().join(' | ')}    (${file}${index ? `#${index}` : ''})`);
+    write(rows.sort().join('\n') + '\n');
+    return 0;
+  }
+
+  let stdinText: string | undefined;
+  const readStdin = async () => {
+    const source = io.stdin ?? process.stdin;
+    stdinText ??= (typeof source === 'string' ? source : await readAll(source)).replace(/\r?\n$/, '');
+    return stdinText;
+  };
+
+  // Text: arguments, then the config file, then stdin (when piped, or given as "-").
+  let jobs: Job[];
+  if (textJobs) {
+    if (positionals.length) throw new TextrudeError(`with --text, give every text its own --text (unexpected "${positionals[0]}")`);
+    jobs = [];
+    for (const job of textJobs) jobs.push(job.text === '-' ? { ...job, text: await readStdin() } : job);
+  } else {
+    let input = '';
+    const useStdin = positionals.length === 1 && positionals[0] === '-';
+    if (positionals.length && !useStdin) input = positionals.join(' ');
+    else if (!positionals.length && configText != null) input = configText;
+    else if (useStdin || io.stdin != null || !process.stdin.isTTY) input = await readStdin();
+    if (!input) {
+      process.stderr.write(HELP);
+      return 1;
+    }
+    jobs = [{ text: input, values: v }];
+  }
 
   const output = str('output');
   const format = str('format') ?? (/\.3mf$/i.test(output ?? '') ? '3mf' : 'svg');
   if (format !== '3mf' && format !== 'svg') throw new TextrudeError('--format must be svg or 3mf');
 
-  ui.header(input.replace(/\x1b\[[0-9;:]*m/g, ''));
-  const result = await textrude(input, options);
+  let printer: string | PrinterProfile | undefined = str('printer') ?? (v['printer-preset'] ? undefined : env.TEXTRUDE_PRINTER || undefined);
+  if (format === '3mf' && !printer && v['printer-preset']) {
+    if (!v['process-preset'] || !v['filament-preset']) throw new TextrudeError('--printer-preset also needs --process-preset and --filament-preset');
+    printer = { label: str('printer-preset')!, printer: str('printer-preset')!, process: str('process-preset')!, filament: str('filament-preset')!, bedType: 'Textured PEI Plate' };
+  }
+
+  const plain = (text: string) => text.replace(/\x1b\[[0-9;:]*m/g, '');
+  ui.header(plain(jobs[0]!.text), jobs.length - 1);
+  const results: TextrudeResult[] = [];
+  for (const [i, job] of jobs.entries()) {
+    if (jobs.length > 1) {
+      if (i) ui.blank();
+      ui.detail('text', ui.chalk.bold(JSON.stringify(plain(job.text))));
+    }
+    results.push(await textrude(job.text, renderOptions(job.values)));
+  }
+  const bed = typeof printer === 'string' ? PRINTERS[printer]?.bedSize : printer?.bedSize;
+  const gap = num('gap');
+  const plate = arrange(results, { gap, maxWidth: bed?.[0], onLog: (e) => ui.log(e) });
+
   let data: string | Uint8Array;
   if (format === '3mf') {
-    let printer: string | PrinterProfile | undefined = str('printer') ?? (v['printer-preset'] ? undefined : env.TEXTRUDE_PRINTER || undefined);
-    if (!printer && v['printer-preset']) {
-      if (!v['process-preset'] || !v['filament-preset']) throw new TextrudeError('--printer-preset also needs --process-preset and --filament-preset');
-      printer = { label: str('printer-preset')!, printer: str('printer-preset')!, process: str('process-preset')!, filament: str('filament-preset')!, bedType: 'Textured PEI Plate' };
-    }
     let position: [number, number] | undefined;
     if (v.position != null) {
       const p = String(v.position).split(',').map(Number);
@@ -402,37 +520,42 @@ async function main(argv: string[], io: RunOptions): Promise<number> {
       position,
       flip: Boolean(v.flip),
     };
-    data = result.to3MF(exportOptions);
+    data = plate.to3MF(exportOptions);
     if (printer) ui.detail('printer', typeof printer === 'string' ? PRINTERS[printer]!.label : printer.label);
   } else {
-    data = result.toSVG({ margin: num('margin'), units: str('units'), precision: num('precision'), flip: Boolean(v.flip) });
+    data = plate.toSVG({ margin: num('margin'), units: str('units'), precision: num('precision'), flip: Boolean(v.flip) });
   }
 
   // Preview and summary.
   const previewPath = str('preview-png');
-  if (previewPath) fs.writeFileSync(previewPath, result.toPNG());
+  if (previewPath) fs.writeFileSync(previewPath, plate.toPNG());
   const showPreview = v.preview ?? io.preview ?? Boolean(process.stderr.isTTY);
   if (showPreview && !v.quiet) {
     try {
       const { default: terminalImage } = await import('terminal-image');
       ui.blank();
-      ui.raw(await terminalImage.buffer(result.toPNG(), { width: '70%', height: '40%' }));
+      ui.raw(await terminalImage.buffer(plate.toPNG(), { width: '70%', height: '40%' }));
     } catch (err) {
       ui.warn(`preview failed: ${(err as Error).message}`);
     }
   }
 
-  const { parts } = result;
+  const { parts, objects } = plate;
   ui.blank();
-  const dims = `${result.width.toFixed(1)} × ${result.depth.toFixed(1)}`;
-  ui.detail('size', format === '3mf' ? `${dims} × ${result.height} mm` : `${dims} mm`);
+  const dims = `${plate.width.toFixed(1)} × ${plate.depth.toFixed(1)}`;
+  ui.detail('size', format === '3mf' ? `${dims} × ${plate.height} mm` : `${dims} mm`);
+  if (objects.length > 1) ui.detail('objects', `${objects.length} ${ui.chalk.dim(`(one per text, ${gap ?? 5} mm apart)`)}`);
   ui.detail('parts', `${parts.length} ${ui.chalk.dim(format === '3mf' ? '(one per color: filament, color, role, height, volume)' : '(one path per color)')}`);
   const roleWidth = Math.max(16, ...parts.map((p) => p.roles.join(' + ').length + 2));
-  for (const p of parts) {
-    const slot = format === '3mf' ? ui.chalk.bold(String(p.filament).padStart(2)) + '  ' : '';
-    const vol = format === '3mf' ? ui.chalk.dim(`${(Math.abs(area(p.shape)) * p.height).toFixed(0)} mm³`.padStart(10)) : '';
-    const h = format === '3mf' ? `${p.height} mm`.padStart(7) : '';
-    ui.raw(`    ${ui.swatch(p.color)}  ${slot}${p.color}  ${p.roles.join(' + ').padEnd(roleWidth)}${h}${vol}`);
+  for (const obj of objects) {
+    const indent = objects.length > 1 ? '  ' : '';
+    if (objects.length > 1) ui.raw(`    ${ui.chalk.bold(obj.name)}`);
+    for (const p of obj.parts) {
+      const slot = format === '3mf' ? ui.chalk.bold(String(p.filament).padStart(2)) + '  ' : '';
+      const vol = format === '3mf' ? ui.chalk.dim(`${(Math.abs(area(p.shape)) * p.height).toFixed(0)} mm³`.padStart(10)) : '';
+      const h = format === '3mf' ? `${p.height} mm`.padStart(7) : '';
+      ui.raw(`    ${indent}${ui.swatch(p.color)}  ${slot}${p.color}  ${p.roles.join(' + ').padEnd(roleWidth)}${h}${vol}`);
+    }
   }
   ui.blank();
 

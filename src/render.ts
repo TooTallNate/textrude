@@ -11,7 +11,7 @@ import type { Shape } from './types.js';
 import { parseColor, toHex, lab, nearestIndex, reduceColors, type RGB } from './colors.js';
 import { parseAnsi } from './ansi.js';
 import { writeSvg, type SvgOptions } from './svg.js';
-import { write3mf } from './threemf.js';
+import { write3mf, type MeshObject } from './threemf.js';
 import { renderPng, type PngOptions } from './raster.js';
 import { PRINTERS, projectSettings, type PrinterProfile } from './printers.js';
 import { TextrudeError } from './errors.js';
@@ -153,7 +153,7 @@ export interface ThreeMfExportOptions {
   position?: [number, number];
   /** Mirror for face-down printing. */
   flip?: boolean;
-  /** Object name. Default: the text, without emoji. */
+  /** Plate name (and object name, for a single text). Default: the text, without emoji. */
   name?: string;
 }
 
@@ -175,6 +175,14 @@ export interface TextrudeResult {
   /** A top-down preview image. */
   toPNG(options?: PngOptions): Uint8Array;
 }
+
+/**
+ * Internal bookkeeping for {@link arrange}: parts whose filament was numbered automatically
+ * (by color, rather than from a palette or an explicit override), and each result's palette
+ * and logger.
+ */
+export const autoFilament = new WeakSet<Part>();
+export const resultInfo = new WeakMap<TextrudeResult, { palette?: RGB[]; log: (level: LogLevel, message: string) => void }>();
 
 const JOINS = { round: JoinType.jtRound, miter: JoinType.jtMiter, square: JoinType.jtSquare } as const;
 
@@ -425,19 +433,25 @@ export async function textrude(input: string, options: TextrudeOptions = {}): Pr
     part.shapes.push(l.shape);
   }
   const hexOrder = [...new Set(drafts.map((p) => p.color))];
-  let parts: Part[] = drafts.map(({ shapes, ...p }) => ({
-    ...p,
-    id: `${p.roles.join('+')} ${p.color}`,
-    filament: p.filament ?? hexOrder.indexOf(p.color) + 1,
-    shape: shapes.length > 1 ? union(...shapes) : shapes[0]!,
-  }));
+  let parts: Part[] = drafts.map(({ shapes, ...p }) => {
+    const part = {
+      ...p,
+      id: `${p.roles.join('+')} ${p.color}`,
+      filament: p.filament ?? hexOrder.indexOf(p.color) + 1,
+      shape: shapes.length > 1 ? union(...shapes) : shapes[0]!,
+    };
+    if (p.filament == null) autoFilament.add(part);
+    return part;
+  });
   if (options.singlePath) {
     const first = parts[0]!;
-    parts = [{ ...first, id: `textrude ${first.color}`, shape: connected ?? union(...parts.map((p) => p.shape)) }];
+    const single = { ...first, id: `textrude ${first.color}`, shape: connected ?? union(...parts.map((p) => p.shape)) };
+    if (autoFilament.has(first)) autoFilament.add(single);
+    parts = [single];
   }
 
   const box = bbox(parts.flatMap((p) => p.shape));
-  return {
+  const result: TextrudeResult = {
     text,
     fonts: used,
     parts,
@@ -452,15 +466,25 @@ export async function textrude(input: string, options: TextrudeOptions = {}): Pr
       );
     },
     to3MF(opts = {}) {
-      return export3mf(parts, text, palette, opts, log);
+      return export3mf([{ name: plainName(text), parts }], palette, opts, log, result);
     },
     toPNG(opts = {}) {
       return renderPng(parts, opts);
     },
   };
+  resultInfo.set(result, { palette, log });
+  return result;
 }
 
-function export3mf(parts: Part[], text: string, palette: RGB[] | undefined, opts: ThreeMfExportOptions, log: (l: LogLevel, m: string) => void): Uint8Array {
+/** Write objects (whose shapes share one coordinate space) to a 3MF, resolving the printer profile. */
+export function export3mf(
+  objects: (MeshObject & { parts: Part[] })[],
+  palette: RGB[] | undefined,
+  opts: ThreeMfExportOptions,
+  log: (l: LogLevel, m: string) => void,
+  size?: { width: number; depth: number },
+): Uint8Array {
+  const parts = objects.flatMap((o) => o.parts);
   let profile: PrinterProfile | null = null;
   if (typeof opts.printer === 'string') {
     const p = PRINTERS[opts.printer];
@@ -491,6 +515,12 @@ function export3mf(parts: Part[], text: string, palette: RGB[] | undefined, opts
     log('note', "no printer profile given, so filament colors aren't embedded (the slicer keeps its current filament list)");
   }
 
+  if (size && profile?.bedSize && (size.width > profile.bedSize[0] || size.depth > profile.bedSize[1])) {
+    const [w, d] = profile.bedSize;
+    log('warn', `the plate is ${size.width.toFixed(0)} × ${size.depth.toFixed(0)} mm, but the ${profile.label} bed is ${w} × ${d} mm`);
+  }
+
   const position = opts.position ?? profile?.bedCenter ?? [100, 100];
-  return write3mf(parts, { name: opts.name ?? plainName(text), position, mirror: opts.flip, projectConfig });
+  const name = opts.name ?? (objects.length === 1 ? objects[0]!.name : objects.map((o) => o.name).join(', '));
+  return write3mf(objects, { name, position, mirror: opts.flip, projectConfig });
 }

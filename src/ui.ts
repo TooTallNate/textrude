@@ -13,11 +13,16 @@ const out = (...lines: string[]) => {
 
 export const ui = {
   chalk,
-  header(text: string) {
+  /** The banner, showing the (first) text, and how many more texts there are. */
+  header(text: string, moreTexts = 0) {
     const lines = text.split('\n');
     let first = lines[0]!;
     if (first.length > 60) first = `${first.slice(0, 59)}…`;
-    const more = lines.length > 1 ? chalk.dim(` (+${lines.length - 1} more line${lines.length > 2 ? 's' : ''})`) : '';
+    const more = moreTexts
+      ? chalk.dim(` (+${moreTexts} more text${moreTexts > 1 ? 's' : ''})`)
+      : lines.length > 1
+        ? chalk.dim(` (+${lines.length - 1} more line${lines.length > 2 ? 's' : ''})`)
+        : '';
     out(`\n${chalk.bold.bgHex('#e8590c').hex('#ffffff')(' textrude ')} ${chalk.bold(JSON.stringify(first))}${more}\n`);
   },
   /** A "label  value" detail line. */

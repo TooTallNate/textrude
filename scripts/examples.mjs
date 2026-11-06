@@ -90,6 +90,11 @@ const EXAMPLES = [
     args: ['-f', 'Arial Black', '-w', '1.5', '--connect', '-o', 'ansi.3mf'],
   },
   {
+    name: 'names',
+    title: 'Several texts as separate objects, spaced apart on one plate',
+    args: ['-f', 'Arial Black', '-w', '1.5', '--connect', '-t', 'Alice', '-c', 'red', '-t', 'Bob', '-c', 'blue', '-t', 'Carol', '-c', 'green', '-o', 'names.3mf'],
+  },
+  {
     name: 'styles',
     title: 'Bold, italic, and underlined',
     args: ['Hello', '-f', 'Helvetica', '-b', '-i', '-u', '-w', '1.5', '--connect', '-o', 'hello.3mf'],

@@ -48,6 +48,7 @@ The Snapmaker U1 has 4 toolheads. textrude warns if a design needs more, and `--
   - Pass `--stroke-color` for a separately colored outline.
 - **Bold, italic, underline, strikethrough.** Real font faces or variable-font axes are used when available, and synthesized otherwise.
 - **`--flip`** to print face-down, so the visible side is the smooth surface that touched the build plate.
+- **Multiple texts** (`-t Alice -t Bob`) become separate objects on one plate, spaced apart so they print separately.
 - **Config files** (`--config sign.json`) to save a design and re-run it.
 - **Terminal preview**: shows an image of the result, plus a table of parts with their filament, color, height, and volume.
   - Terminals with native image support (iTerm2, Kitty, WezTerm, ...) show a full image; others get colored blocks.
@@ -87,6 +88,16 @@ for (const part of result.parts) console.log(part.filament, part.color, part.rol
 fs.writeFileSync('hello.3mf', result.to3MF({ printer: 'snapmaker-u1', flip: true }));
 fs.writeFileSync('hello.svg', result.toSVG());
 fs.writeFileSync('hello.png', result.toPNG());
+```
+
+`arrange()` lays out several results as separate objects on one plate. The plate has the same `to3MF()`, `toSVG()`, and `toPNG()` methods:
+
+```ts
+import { arrange, textrude } from 'textrude';
+
+const names = await Promise.all(['Alice', 'Bob', 'Carol'].map((name) => textrude(name, { strokeWidth: 1.5, connect: true })));
+const plate = arrange(names, { gap: 5, maxWidth: 270 });
+fs.writeFileSync('names.3mf', plate.to3MF({ printer: 'snapmaker-u1' }));
 ```
 
 Invalid input throws a `TextrudeError`.
@@ -188,6 +199,14 @@ printf '\033[91mRed \033[92mGreen \033[94mBlue \033[38;2;255;140;0mOrange' | tex
 
 ![Any ANSI-colored text works, including 256-color and truecolor codes](examples/ansi.svg)
 
+### Several texts as separate objects, spaced apart on one plate
+
+```sh
+textrude -f "Arial Black" -w 1.5 --connect -t Alice -c red -t Bob -c blue -t Carol -c green -o names.3mf
+```
+
+![Several texts as separate objects, spaced apart on one plate](examples/names.svg)
+
 ### Bold, italic, and underlined
 
 ```sh
@@ -214,6 +233,24 @@ textrude Hello -f https://github.com/google/fonts/raw/main/ofl/pacifico/Pacifico
 
 <!-- examples:end -->
 
+## Multiple texts
+
+Each `-t` / `--text` adds a separate object to the plate. Every object has its own parts, one per color:
+
+```sh
+textrude -f "Arial Black" -w 1.5 --connect \
+  -t Alice -c red \
+  -t Bob -c blue \
+  -t Carol -c green \
+  --printer snapmaker-u1 -o names.3mf
+```
+
+- Options before the first `-t` apply to every text. Options after a `-t` apply only to that text, and override the shared ones.
+- Options for the whole file can go anywhere: `-o`, `--printer`, `--palette`, `--flip`, `--position`, and so on.
+- The objects are laid out left to right, `--gap` mm apart (default 5). A new row starts when a row would get wider than the printer's bed (200 mm without a printer profile).
+- A color uses the same filament slot in every object.
+- `-t -` reads that text from stdin.
+
 ## Config files
 
 Any option can go in a JSON file, using either `--kebab-case` names or `camelCase`, plus `text`. Command-line flags override the file.
@@ -235,6 +272,17 @@ Any option can go in a JSON file, using either `--kebab-case` names or `camelCas
 textrude --config party.json -o party.3mf
 ```
 
+For several texts, use a `texts` array instead of `text`. Each entry is a string, or an object with its own options. The top-level options are shared by all of them. Texts given with `-t` replace the file's `texts`.
+
+```json
+{
+  "font": "Arial Black",
+  "strokeWidth": 1.5,
+  "connect": true,
+  "texts": ["Alice", { "text": "Bob", "color": "blue" }, { "text": "Carol 🎉", "size": 30 }]
+}
+```
+
 ## Notes
 
 - Sizes are in mm. `--size` is the font's em size.
@@ -253,7 +301,7 @@ textrude --config party.json -o party.3mf
   `--synthetic` forces the synthetic version, and `--embolden` and `--slant` set the amounts directly.
 - If the bridges are the same color as the stroke (the default), they are merged into the stroke part.
 - With `--flip`, all parts start flat on the bed, so different heights only change the back of the print.
-- The object is placed at `--position`. By default that's the printer's bed center, or `100,100` without a printer profile. Press **A** (Arrange) in the slicer to re-center it.
+- The object (or the group of objects, for multiple texts) is centered at `--position`. By default that's the printer's bed center, or `100,100` without a printer profile. Press **A** (Arrange) in the slicer to re-center it.
 - Not supported yet: COLRv1 fonts (gradients) and SVG-in-OpenType fonts.
 
 ## Development
