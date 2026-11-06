@@ -6,6 +6,8 @@ export interface RenderRequest {
   font: string;
   fallbackFonts: string[];
   options: RenderOptions;
+  /** Mirror the meshes, as they're printed face-down. */
+  flip: boolean;
 }
 
 export type RenderOutcome = { model: Model; logs: LogEvent[]; error?: undefined } | { error: string; logs: LogEvent[]; model?: undefined };

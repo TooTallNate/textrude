@@ -44,7 +44,7 @@ ctx.onmessage = async (e: MessageEvent<WorkerRequest>) => {
       const [main, ...fallbacks] = await Promise.all([font(msg.font), ...msg.fallbackFonts.map(font)]);
       const start = performance.now();
       const result = await textrude(msg.text, { ...msg.options, font: main, fallbackFonts: fallbacks, onLog });
-      const meshes = result.toMeshes();
+      const meshes = result.toMeshes({ flip: msg.flip });
       last = result;
       const model: Model = {
         id: msg.id,

@@ -116,7 +116,7 @@ export default function App() {
       const emoji = EMOJI_FONTS.find((e) => e.name === s.emojiFont);
       // Only load the (large) emoji font when the text might need it.
       const fallbackFonts = emoji && /[^\x00-\x7f]/.test(s.text) ? [fontUrl(emoji.file)] : [];
-      if (!cancelled) renderer.render({ text: s.text, font, fallbackFonts, options: renderOptions(s, style) });
+      if (!cancelled) renderer.render({ text: s.text, font, fallbackFonts, options: renderOptions(s, style), flip: s.flip });
     }, 60);
     return () => {
       cancelled = true;

@@ -13,7 +13,7 @@ export interface ExportOptions {
 export type WorkerRequest =
   /** Make font data available under `key` (fonts with URL keys are fetched on demand). */
   | { type: 'font'; key: string; data: Uint8Array }
-  | { type: 'render'; id: number; text: string; font: string; fallbackFonts: string[]; options: RenderOptions }
+  | { type: 'render'; id: number; text: string; font: string; fallbackFonts: string[]; options: RenderOptions; flip: boolean }
   | { type: 'export'; id: number; format: ExportFormat; options: ExportOptions };
 
 export interface ModelPart {
