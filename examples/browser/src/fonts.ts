@@ -2,15 +2,21 @@ import manifest from '../fonts.json';
 
 /**
  * Where a font comes from: one of the bundled fonts (by name), an installed font family (via
- * the Local Font Access API), or an uploaded file.
+ * the Local Font Access API), an uploaded file, or a URL (from a config file).
  */
-export type FontRef = { kind: 'bundled'; name: string } | { kind: 'local'; family: string } | { kind: 'upload'; id: string };
+export type FontRef =
+  | { kind: 'bundled'; name: string }
+  | { kind: 'local'; family: string }
+  | { kind: 'upload'; id: string }
+  | { kind: 'url'; url: string };
 
 export interface BundledFont {
   name: string;
   category: string;
   file: string;
-  italic?: { file: string };
+  /** Where the font comes from (also used for it in config files, so they work with the CLI). */
+  url: string;
+  italic?: { file: string; url: string };
 }
 
 export const BUNDLED: BundledFont[] = manifest.fonts;
@@ -21,7 +27,9 @@ export const fontUrl = (file: string) => new URL(`${import.meta.env.BASE_URL}fon
 
 export interface UploadedFont {
   id: string;
+  /** The file name without its extension. */
   name: string;
+  fileName: string;
   data: Uint8Array;
 }
 

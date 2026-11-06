@@ -1,4 +1,4 @@
-import type { LogEvent, Role, TextrudeOptions, UsedFont } from 'textrude';
+import type { LogEvent, Role, TextrudeOptions } from 'textrude';
 
 /** Options passed straight through to `textrude()`. Fonts are sent separately, by key. */
 export type RenderOptions = Omit<TextrudeOptions, 'font' | 'fallbackFonts' | 'onLog'>;
@@ -10,10 +10,29 @@ export interface ExportOptions {
   flip?: boolean;
 }
 
+/** One text on the plate. */
+export interface TextRequest {
+  text: string;
+  /** Font key (see the "font" request). */
+  font: string;
+  fallbackFonts: string[];
+  options: RenderOptions;
+}
+
+export interface RenderRequest {
+  texts: TextRequest[];
+  /** Space between texts (mm). */
+  gap: number;
+  /** Start a new row of texts past this width (mm), e.g. the bed width. */
+  maxWidth?: number;
+  /** Mirror the meshes, as they're printed face-down. */
+  flip: boolean;
+}
+
 export type WorkerRequest =
   /** Make font data available under `key` (fonts with URL keys are fetched on demand). */
   | { type: 'font'; key: string; data: Uint8Array }
-  | { type: 'render'; id: number; text: string; font: string; fallbackFonts: string[]; options: RenderOptions; flip: boolean }
+  | ({ type: 'render'; id: number } & RenderRequest)
   | { type: 'export'; id: number; format: ExportFormat; options: ExportOptions };
 
 export interface ModelPart {
@@ -30,13 +49,13 @@ export interface ModelPart {
 export interface Model {
   /** The render request this model came from. */
   id: number;
-  text: string;
+  /** The rendered texts (escape sequences removed). */
+  texts: string[];
+  /** Every text's parts, in their places on the plate. */
   parts: ModelPart[];
   width: number;
   depth: number;
   height: number;
-  fonts: UsedFont[];
-  bridged: { islands: number; bridges: number; remaining: number } | null;
   /** Render time (ms). */
   time: number;
 }

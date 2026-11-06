@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlignCenter, AlignLeft, AlignRight, ArrowDownToLine, Bold, Box, Eye, EyeOff, Info, Italic, LoaderCircle, Rotate3d,
-  Strikethrough, TriangleAlert, Underline, Upload,
+  FileDown, FileUp, Plus, Strikethrough, TriangleAlert, Underline, Upload, X,
 } from 'lucide-react';
 import type { LogEvent } from 'textrude';
 import { PRINTERS } from 'textrude/printers';
@@ -10,37 +10,60 @@ import { ColorInput, ColorList, luminance, NumberInput, Row, Section, Segmented,
 import {
   BUNDLED, CATEGORIES, EMOJI_FONTS, canUseLocalFonts, fontUrl, localFamilies, pickLocalFace, type FontRef, type LocalFace, type UploadedFont,
 } from './fonts';
-import type { ExportFormat, Model } from './protocol';
+import type { ExportFormat, Model, TextRequest } from './protocol';
 import { Renderer } from './renderer';
-import { DEFAULTS, decodeSettings, encodeSettings, renderOptions, type Settings } from './settings';
+import {
+  DEFAULT_FONT, decodeSettings, encodeSettings, fromConfig, renderOptions, toConfig, type Settings, type TextSettings,
+} from './settings';
 import { cn, download } from './lib/utils';
 
 const FONT_FILE = /\.(ttf|otf|ttc|otc|woff2?)$/i;
 const ROLE_LABELS: Record<string, string> = { text: 'Text', color: 'Emoji', stroke: 'Outline', bridge: 'Bridges', background: 'Background' };
 
-const fontValue = (f: FontRef) => (f.kind === 'bundled' ? `bundled:${f.name}` : f.kind === 'local' ? `local:${f.family}` : `upload:${f.id}`);
+const fontValue = (f: FontRef) =>
+  f.kind === 'bundled' ? `bundled:${f.name}` : f.kind === 'local' ? `local:${f.family}` : f.kind === 'upload' ? `upload:${f.id}` : `url:${f.url}`;
 
 function parseFontValue(v: string): FontRef {
   const [kind, ...rest] = v.split(':');
   const name = rest.join(':');
-  return kind === 'local' ? { kind, family: name } : kind === 'upload' ? { kind, id: name } : { kind: 'bundled', name };
+  if (kind === 'local') return { kind, family: name };
+  if (kind === 'upload') return { kind, id: name };
+  if (kind === 'url') return { kind, url: name };
+  return { kind: 'bundled', name };
 }
 
-/** A file name for the design: its text, without emoji or punctuation. */
-function fileName(text: string) {
-  const slug = text
+const fontLabel = (url: string) => decodeURIComponent(url.replace(/[?#].*$/, '').replace(/^.*\//, '')).replace(FONT_FILE, '') || url;
+
+/** A file name for the design: its texts, without emoji or punctuation. */
+function fileName(texts: string[]) {
+  const slug = texts
+    .join(' ')
     .normalize('NFKD')
     .replace(/\p{M}/gu, '')
     .replace(/[^\p{L}\p{N}]+/gu, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 40)
+    .replace(/-+$/, '')
     .toLowerCase();
   return slug || 'textrude';
 }
 
+const preview = (text: string) => text.replace(/\s+/g, ' ').trim() || '(empty)';
+
 export default function App() {
-  const [settings, setSettings] = useState<Settings>(() => decodeSettings(location.hash));
+  const initial = useMemo(() => decodeSettings(location.hash), []);
+  const [settings, setSettings] = useState<Settings>(initial.settings);
+  const [configNotes, setConfigNotes] = useState<string[]>(initial.notes);
+  const [selected, setSelected] = useState(0);
+  const index = Math.min(selected, settings.texts.length - 1);
+  const t = settings.texts[index]!;
+
   const set = useCallback(<K extends keyof Settings>(key: K, value: Settings[K]) => setSettings((s) => ({ ...s, [key]: value })), []);
+  const updateText = useCallback(
+    (patch: Partial<TextSettings>) => setSettings((s) => ({ ...s, texts: s.texts.map((x, i) => (i === index ? { ...x, ...patch } : x)) })),
+    [index],
+  );
+  const setT = useCallback(<K extends keyof TextSettings>(key: K, value: TextSettings[K]) => updateText({ [key]: value }), [updateText]);
 
   const [uploads, setUploads] = useState<UploadedFont[]>([]);
   const [localFonts, setLocalFonts] = useState<Map<string, LocalFace[]> | null>(null);
@@ -52,6 +75,7 @@ export default function App() {
   const [dragging, setDragging] = useState(false);
   const viewer = useRef<ViewerHandle>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const configInput = useRef<HTMLInputElement>(null);
 
   const renderer = useMemo(() => new Renderer(), []);
   useEffect(() => {
@@ -65,83 +89,119 @@ export default function App() {
 
   // Keep the design in the URL, so it survives reloads and can be shared.
   useEffect(() => {
-    const t = setTimeout(() => {
-      const hash = encodeSettings(settings);
+    const timer = setTimeout(() => {
+      const hash = encodeSettings(settings, { uploads, localFonts });
       history.replaceState(null, '', hash ? `#${hash}` : location.pathname + location.search);
     }, 300);
-    return () => clearTimeout(t);
-  }, [settings]);
+    return () => clearTimeout(timer);
+  }, [settings, uploads, localFonts]);
 
   // Fonts that aren't available (e.g. an uploaded font after a reload) fall back to the default.
   useEffect(() => {
-    const f = settings.font;
-    if ((f.kind === 'upload' && !uploads.some((u) => u.id === f.id)) || (f.kind === 'local' && !localFonts?.has(f.family))) {
-      set('font', DEFAULTS.font);
-    } else if (f.kind === 'bundled' && !BUNDLED.some((b) => b.name === f.name)) {
-      set('font', DEFAULTS.font);
+    const missing = (f: FontRef) =>
+      (f.kind === 'upload' && !uploads.some((u) => u.id === f.id)) ||
+      (f.kind === 'local' && !localFonts?.has(f.family)) ||
+      (f.kind === 'bundled' && !BUNDLED.some((b) => b.name === f.name));
+    if (settings.texts.some((x) => missing(x.font))) {
+      setSettings((s) => ({ ...s, texts: s.texts.map((x) => (missing(x.font) ? { ...x, font: DEFAULT_FONT } : x)) }));
     }
-  }, [settings.font, uploads, localFonts, set]);
+  }, [settings.texts, uploads, localFonts]);
 
   // Render whenever the settings change.
   const localLoaded = useRef(new Set<string>());
   useEffect(() => {
     let cancelled = false;
-    const t = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       const s = settings;
-      let font: string;
-      let style = { bold: s.bold, italic: s.italic };
-      if (s.font.kind === 'bundled') {
-        const name = s.font.name;
-        const b = BUNDLED.find((x) => x.name === name) ?? BUNDLED[0]!;
-        const useItalic = s.italic && b.italic;
-        font = fontUrl(useItalic ? b.italic!.file : b.file);
-        if (useItalic) style = { ...style, italic: false };
-      } else if (s.font.kind === 'local') {
-        const faces = localFonts?.get(s.font.family);
-        if (!faces) return;
-        const pick = pickLocalFace(faces, s.bold, s.italic);
-        font = `local:${pick.face.postscriptName}`;
-        style = { bold: s.bold && !pick.bold, italic: s.italic && !pick.italic };
-        if (!localLoaded.current.has(font)) {
-          const data = new Uint8Array(await (await pick.face.blob()).arrayBuffer());
-          if (cancelled) return;
-          renderer.addFont(font, data);
-          localLoaded.current.add(font);
-        }
-      } else {
-        const id = s.font.id;
-        if (!uploads.some((u) => u.id === id)) return;
-        font = `upload:${id}`;
-      }
       const emoji = EMOJI_FONTS.find((e) => e.name === s.emojiFont);
-      // Only load the (large) emoji font when the text might need it.
-      const fallbackFonts = emoji && /[^\x00-\x7f]/.test(s.text) ? [fontUrl(emoji.file)] : [];
-      if (!cancelled) renderer.render({ text: s.text, font, fallbackFonts, options: renderOptions(s, style), flip: s.flip });
+      const texts: TextRequest[] = [];
+      for (const x of s.texts) {
+        let font: string;
+        let style = { bold: x.bold, italic: x.italic };
+        if (x.font.kind === 'bundled') {
+          const name = x.font.name;
+          const b = BUNDLED.find((f) => f.name === name) ?? BUNDLED[0]!;
+          const useItalic = x.italic && b.italic;
+          font = fontUrl(useItalic ? b.italic!.file : b.file);
+          if (useItalic) style = { ...style, italic: false };
+        } else if (x.font.kind === 'url') {
+          font = x.font.url;
+        } else if (x.font.kind === 'local') {
+          const faces = localFonts?.get(x.font.family);
+          if (!faces) return;
+          const pick = pickLocalFace(faces, x.bold, x.italic);
+          font = `local:${pick.face.postscriptName}`;
+          style = { bold: x.bold && !pick.bold, italic: x.italic && !pick.italic };
+          if (!localLoaded.current.has(font)) {
+            const data = new Uint8Array(await (await pick.face.blob()).arrayBuffer());
+            if (cancelled) return;
+            renderer.addFont(font, data);
+            localLoaded.current.add(font);
+          }
+        } else {
+          const id = x.font.id;
+          if (!uploads.some((u) => u.id === id)) return;
+          font = `upload:${id}`;
+        }
+        // Only load the (large) emoji font when the text might need it.
+        const fallbackFonts = emoji && /[^\x00-\x7f]/.test(x.text) ? [fontUrl(emoji.file)] : [];
+        texts.push({ text: x.text, font, fallbackFonts, options: renderOptions(x, s, style) });
+      }
+      const bed = s.printer ? PRINTERS[s.printer]?.bedSize : undefined;
+      if (!cancelled) renderer.render({ texts, gap: s.gap, maxWidth: bed?.[0], flip: s.flip });
     }, 60);
     return () => {
       cancelled = true;
-      clearTimeout(t);
+      clearTimeout(timer);
     };
   }, [settings, uploads, localFonts, renderer]);
 
   const addFontFiles = useCallback(
-    async (files: FileList | File[]) => {
-      const fonts = [...files].filter((f) => FONT_FILE.test(f.name));
-      if (!fonts.length) return;
+    async (files: File[]) => {
       const added: UploadedFont[] = [];
-      for (const file of fonts) {
+      for (const file of files) {
         const id = `${file.name}-${file.size}-${file.lastModified}`;
         const data = new Uint8Array(await file.arrayBuffer());
         renderer.addFont(`upload:${id}`, data);
-        added.push({ id, name: file.name.replace(FONT_FILE, ''), data });
+        added.push({ id, name: file.name.replace(FONT_FILE, ''), fileName: file.name, data });
       }
       setUploads((u) => [...u.filter((x) => !added.some((a) => a.id === x.id)), ...added]);
-      set('font', { kind: 'upload', id: added[0]!.id });
+      return added;
     },
-    [renderer, set],
+    [renderer],
   );
 
-  // Drop font files anywhere on the page.
+  const loadConfig = useCallback(
+    async (file: File, extraUploads: UploadedFont[] = []) => {
+      try {
+        const raw = JSON.parse(await file.text());
+        const { settings: next, notes } = fromConfig(raw, { uploads: [...uploads, ...extraUploads], localFonts });
+        setSettings(next);
+        setSelected(0);
+        setConfigNotes(notes);
+        setHidden(new Set());
+        viewer.current?.fit('perspective');
+      } catch (err) {
+        setConfigNotes([`Couldn't load ${file.name}: ${(err as Error).message}`]);
+      }
+    },
+    [uploads, localFonts],
+  );
+
+  // Font files and config files, from the file pickers or dropped anywhere on the page.
+  const openFiles = useCallback(
+    async (list: FileList | File[]) => {
+      const files = [...list];
+      const fonts = files.filter((f) => FONT_FILE.test(f.name));
+      const config = files.find((f) => /\.json$/i.test(f.name) || f.type === 'application/json');
+      const added = fonts.length ? await addFontFiles(fonts) : [];
+      // Fonts dropped together with a config are available to it.
+      if (config) await loadConfig(config, added);
+      else if (added.length) setT('font', { kind: 'upload', id: added[0]!.id });
+    },
+    [addFontFiles, loadConfig, setT],
+  );
+
   useEffect(() => {
     let depth = 0;
     const hasFiles = (e: DragEvent) => e.dataTransfer?.types.includes('Files');
@@ -160,7 +220,7 @@ export default function App() {
       e.preventDefault();
       depth = 0;
       setDragging(false);
-      if (e.dataTransfer?.files.length) addFontFiles(e.dataTransfer.files);
+      if (e.dataTransfer?.files.length) openFiles(e.dataTransfer.files);
     };
     window.addEventListener('dragenter', enter);
     window.addEventListener('dragleave', leave);
@@ -172,7 +232,7 @@ export default function App() {
       window.removeEventListener('dragover', over);
       window.removeEventListener('drop', drop);
     };
-  }, [addFontFiles]);
+  }, [openFiles]);
 
   const loadLocalFonts = async () => {
     try {
@@ -185,6 +245,24 @@ export default function App() {
     }
   };
 
+  const addText = () => {
+    // A new text starts with the selected text's style.
+    setSettings((s) => ({ ...s, texts: [...s.texts, { ...s.texts[index]!, text: `Text ${s.texts.length + 1}` }] }));
+    setSelected(settings.texts.length);
+  };
+  const removeText = (i: number) => {
+    if (settings.texts.length < 2) return;
+    setSettings((s) => ({ ...s, texts: s.texts.filter((_, j) => j !== i) }));
+    if (index >= i && index > 0) setSelected(index - 1);
+  };
+  const applyStyleToAll = () => setSettings((s) => ({ ...s, texts: s.texts.map((x) => ({ ...s.texts[index]!, text: x.text })) }));
+
+  const saveConfig = () => {
+    const config = toConfig(settings, { uploads, localFonts });
+    const name = model ? fileName(model.texts) : 'textrude';
+    download(JSON.stringify(config, null, 2) + '\n', `${name}.json`, 'application/json');
+  };
+
   const [exporting, setExporting] = useState<ExportFormat | null>(null);
   const exportAs = async (format: ExportFormat) => {
     if (!model) return;
@@ -192,7 +270,7 @@ export default function App() {
     try {
       const data = await renderer.export(format, { printer: settings.printer, flip: settings.flip });
       const type = format === '3mf' ? 'model/3mf' : format === 'svg' ? 'image/svg+xml' : 'image/png';
-      download(data, `${fileName(model.text)}.${format}`, type);
+      download(data, `${fileName(model.texts)}.${format}`, type);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -203,10 +281,13 @@ export default function App() {
   const printer = settings.printer ? PRINTERS[settings.printer] : undefined;
   const bed = printer?.bedSize ?? null;
   const filaments = model ? new Set(model.parts.map((p) => p.filament)).size : 0;
+  // One chip per part (the same color in several texts is one filament).
+  const partChips = model ? [...new Map(model.parts.map((p) => [p.id, p])).values()] : [];
   const tooManyColors = printer?.toolheads != null && filaments > printer.toolheads;
   const notes = logs.filter((l) => l.level === 'warn' || l.level === 'note');
-  const multiline = settings.text.includes('\n');
+  const multiline = t.text.includes('\n');
   const s = settings;
+  const urlFonts = [...new Set(s.texts.flatMap((x) => (x.font.kind === 'url' ? [x.font.url] : [])))];
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden lg:flex-row">
@@ -231,26 +312,74 @@ export default function App() {
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <Section title="Text">
+          <Section
+            title={s.texts.length > 1 ? `Texts (${s.texts.length})` : 'Text'}
+            right={
+              <button
+                type="button"
+                onClick={addText}
+                title="Add another text: a separate object on the plate, starting with this text's style"
+                className="flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+              >
+                <Plus className="size-3.5" /> Add text
+              </button>
+            }
+          >
+            {s.texts.length > 1 && (
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap gap-1.5">
+                  {s.texts.map((x, i) => (
+                    <div
+                      key={i}
+                      className={cn(
+                        'flex max-w-full items-center rounded-md border text-xs transition-colors',
+                        i === index ? 'border-sky-500 bg-sky-500/15 text-sky-100' : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-500',
+                      )}
+                    >
+                      <button type="button" onClick={() => setSelected(i)} className="flex min-w-0 cursor-pointer items-center gap-1.5 py-1 pl-2">
+                        <span className="text-zinc-500 tabular-nums">{i + 1}</span>
+                        <span className="max-w-32 truncate">{preview(x.text)}</span>
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Remove text ${i + 1}`}
+                        title="Remove"
+                        onClick={() => removeText(i)}
+                        className="cursor-pointer px-1.5 py-1 text-zinc-500 hover:text-red-400"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={applyStyleToAll}
+                  className="cursor-pointer text-xs text-zinc-500 underline-offset-2 hover:text-zinc-200 hover:underline"
+                >
+                  Apply this text's style to all texts
+                </button>
+              </div>
+            )}
             <textarea
-              value={s.text}
-              onChange={(e) => set('text', e.target.value)}
-              rows={Math.min(6, Math.max(2, s.text.split('\n').length))}
+              value={t.text}
+              onChange={(e) => setT('text', e.target.value)}
+              rows={Math.min(6, Math.max(2, t.text.split('\n').length))}
               spellCheck={false}
               placeholder="Type something…"
               className="w-full resize-y rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-base text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none"
             />
             <Row label="Font">
               <Select
-                value={fontValue(s.font)}
+                value={fontValue(t.font)}
                 className="w-44"
                 onChange={async (v) => {
                   if (v === 'action:upload') fileInput.current?.click();
                   else if (v === 'action:local') {
                     const families = await loadLocalFonts();
                     const first = families?.keys().next().value;
-                    if (first) set('font', { kind: 'local', family: first });
-                  } else set('font', parseFontValue(v));
+                    if (first) setT('font', { kind: 'local', family: first });
+                  } else setT('font', parseFontValue(v));
                 }}
               >
                 {CATEGORIES.map((cat) => (
@@ -267,6 +396,15 @@ export default function App() {
                     {uploads.map((u) => (
                       <option key={u.id} value={`upload:${u.id}`}>
                         {u.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {urlFonts.length > 0 && (
+                  <optgroup label="From a URL">
+                    {urlFonts.map((url) => (
+                      <option key={url} value={`url:${url}`}>
+                        {fontLabel(url)}
                       </option>
                     ))}
                   </optgroup>
@@ -301,37 +439,37 @@ export default function App() {
                 multiple
                 className="hidden"
                 onChange={(e) => {
-                  if (e.target.files) addFontFiles(e.target.files);
+                  if (e.target.files) openFiles(e.target.files);
                   e.target.value = '';
                 }}
               />
             </Row>
             <Row label="Style">
-              <ToggleButton pressed={s.bold} onChange={(v) => set('bold', v)} title="Bold">
+              <ToggleButton pressed={t.bold} onChange={(v) => setT('bold', v)} title="Bold">
                 <Bold className="size-4" />
               </ToggleButton>
-              <ToggleButton pressed={s.italic} onChange={(v) => set('italic', v)} title="Italic">
+              <ToggleButton pressed={t.italic} onChange={(v) => setT('italic', v)} title="Italic">
                 <Italic className="size-4" />
               </ToggleButton>
-              <ToggleButton pressed={s.underline} onChange={(v) => set('underline', v)} title="Underline">
+              <ToggleButton pressed={t.underline} onChange={(v) => setT('underline', v)} title="Underline">
                 <Underline className="size-4" />
               </ToggleButton>
-              <ToggleButton pressed={s.strikethrough} onChange={(v) => set('strikethrough', v)} title="Strikethrough">
+              <ToggleButton pressed={t.strikethrough} onChange={(v) => setT('strikethrough', v)} title="Strikethrough">
                 <Strikethrough className="size-4" />
               </ToggleButton>
             </Row>
             <Row label="Size" hint="The font's em size">
-              <Slider value={s.size} onChange={(v) => set('size', v)} min={5} max={80} step={0.5} unit="mm" />
+              <Slider value={t.size} onChange={(v) => setT('size', v)} min={5} max={80} step={0.5} unit="mm" />
             </Row>
             <Row label="Letter spacing">
-              <Slider value={s.letterSpacing} onChange={(v) => set('letterSpacing', v)} min={-2} max={10} step={0.1} unit="mm" />
+              <Slider value={t.letterSpacing} onChange={(v) => setT('letterSpacing', v)} min={-2} max={10} step={0.1} unit="mm" />
             </Row>
             {multiline && (
               <>
                 <Row label="Align">
                   <Segmented
-                    value={s.align}
-                    onChange={(v) => set('align', v)}
+                    value={t.align}
+                    onChange={(v) => setT('align', v)}
                     options={[
                       { value: 'left', label: <AlignLeft className="size-3.5" />, title: 'Left' },
                       { value: 'center', label: <AlignCenter className="size-3.5" />, title: 'Center' },
@@ -340,7 +478,7 @@ export default function App() {
                   />
                 </Row>
                 <Row label="Line spacing">
-                  <Slider value={s.lineSpacing} onChange={(v) => set('lineSpacing', v)} min={0.5} max={3} step={0.05} unit="×" />
+                  <Slider value={t.lineSpacing} onChange={(v) => setT('lineSpacing', v)} min={0.5} max={3} step={0.05} unit="×" />
                 </Row>
               </>
             )}
@@ -348,19 +486,19 @@ export default function App() {
 
           <Section title="Colors">
             <Row label="Text color">
-              <ColorInput value={s.color} onChange={(v) => set('color', v)} disabled={s.hollow || !!s.letterColors} />
+              <ColorInput value={t.color} onChange={(v) => setT('color', v)} disabled={t.hollow || !!t.letterColors} />
             </Row>
             <Row label="Hollow letters" hint="No fill: only the outline is printed">
-              <Switch checked={s.hollow} onChange={(v) => set('hollow', v)} label="Hollow letters" />
+              <Switch checked={t.hollow} onChange={(v) => setT('hollow', v)} label="Hollow letters" />
             </Row>
             <Row label="Color per letter">
               <Switch
-                checked={!!s.letterColors}
-                onChange={(v) => set('letterColors', v ? ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#a855f7'] : null)}
+                checked={!!t.letterColors}
+                onChange={(v) => setT('letterColors', v ? ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#a855f7'] : null)}
                 label="Color per letter"
               />
             </Row>
-            {s.letterColors && <ColorList colors={s.letterColors} onChange={(v) => set('letterColors', v)} />}
+            {t.letterColors && <ColorList colors={t.letterColors} onChange={(v) => setT('letterColors', v)} />}
             <Row label="Emoji font">
               <Select value={s.emojiFont} onChange={(v) => set('emojiFont', v)} className="w-36">
                 {EMOJI_FONTS.map((e) => (
@@ -373,27 +511,27 @@ export default function App() {
             </Row>
           </Section>
 
-          <Section title="Outline" right={<Switch checked={s.strokeWidth > 0} onChange={(v) => set('strokeWidth', v ? 1.5 : 0)} label="Outline" />}>
-            {s.strokeWidth > 0 && (
+          <Section title="Outline" right={<Switch checked={t.strokeWidth > 0} onChange={(v) => setT('strokeWidth', v ? 1.5 : 0)} label="Outline" />}>
+            {t.strokeWidth > 0 && (
               <>
                 <Row label="Width">
-                  <Slider value={s.strokeWidth} onChange={(v) => set('strokeWidth', v)} min={0.1} max={8} step={0.1} unit="mm" />
+                  <Slider value={t.strokeWidth} onChange={(v) => setT('strokeWidth', v)} min={0.1} max={8} step={0.1} unit="mm" />
                 </Row>
-                {s.background && (
+                {t.background && (
                   <Row label="Same as background">
-                    <Switch checked={s.strokeMatchesBackground} onChange={(v) => set('strokeMatchesBackground', v)} label="Same color as the background" />
+                    <Switch checked={t.strokeMatchesBackground} onChange={(v) => setT('strokeMatchesBackground', v)} label="Same color as the background" />
                   </Row>
                 )}
                 <Row label="Color">
                   <ColorInput
-                    value={s.background && s.strokeMatchesBackground ? s.backgroundColor : s.strokeColor}
-                    onChange={(v) => setSettings((x) => ({ ...x, strokeColor: v, strokeMatchesBackground: false }))}
+                    value={t.background && t.strokeMatchesBackground ? t.backgroundColor : t.strokeColor}
+                    onChange={(v) => updateText({ strokeColor: v, strokeMatchesBackground: false })}
                   />
                 </Row>
                 <Row label="Position">
                   <Segmented
-                    value={s.strokeAlign}
-                    onChange={(v) => set('strokeAlign', v)}
+                    value={t.strokeAlign}
+                    onChange={(v) => setT('strokeAlign', v)}
                     options={[
                       { value: 'outside', label: 'Outside' },
                       { value: 'center', label: 'Center' },
@@ -403,8 +541,8 @@ export default function App() {
                 </Row>
                 <Row label="Corners">
                   <Segmented
-                    value={s.strokeJoin}
-                    onChange={(v) => set('strokeJoin', v)}
+                    value={t.strokeJoin}
+                    onChange={(v) => setT('strokeJoin', v)}
                     options={[
                       { value: 'round', label: 'Round' },
                       { value: 'miter', label: 'Sharp' },
@@ -416,33 +554,33 @@ export default function App() {
             )}
           </Section>
 
-          <Section title="Background plate" right={<Switch checked={s.background} onChange={(v) => set('background', v)} label="Background plate" />}>
-            {s.background && (
+          <Section title="Background plate" right={<Switch checked={t.background} onChange={(v) => setT('background', v)} label="Background plate" />}>
+            {t.background && (
               <>
                 <Row label="Color">
-                  <ColorInput value={s.backgroundColor} onChange={(v) => set('backgroundColor', v)} />
+                  <ColorInput value={t.backgroundColor} onChange={(v) => setT('backgroundColor', v)} />
                 </Row>
                 <Row label="Padding">
-                  <NumberInput value={s.backgroundPadding} onChange={(v) => set('backgroundPadding', v)} min={0} nullable placeholder={String(s.size * 0.25)} unit="mm" />
+                  <NumberInput value={t.backgroundPadding} onChange={(v) => setT('backgroundPadding', v)} min={0} nullable placeholder={String(t.size * 0.25)} unit="mm" />
                 </Row>
                 <Row label="Corner radius" hint="Like CSS border-radius: a huge radius makes a pill">
-                  <Slider value={s.backgroundRadius} onChange={(v) => set('backgroundRadius', v)} min={0} max={50} step={0.5} unit="mm" />
+                  <Slider value={t.backgroundRadius} onChange={(v) => setT('backgroundRadius', v)} min={0} max={50} step={0.5} unit="mm" />
                 </Row>
               </>
             )}
-            {!s.background && (
+            {!t.background && (
               <Row label="Connect pieces" hint="Bridge separate letters and dots so the print is one piece">
-                <Switch checked={s.connect} onChange={(v) => set('connect', v)} label="Connect pieces" />
+                <Switch checked={t.connect} onChange={(v) => setT('connect', v)} label="Connect pieces" />
               </Row>
             )}
-            {!s.background && s.connect && (
+            {!t.background && t.connect && (
               <Row label="Bridge width">
                 <NumberInput
-                  value={s.bridgeWidth}
-                  onChange={(v) => set('bridgeWidth', v)}
+                  value={t.bridgeWidth}
+                  onChange={(v) => setT('bridgeWidth', v)}
                   min={0.1}
                   nullable
-                  placeholder={String(s.strokeWidth > 0 ? s.strokeWidth : +(s.size * 0.1).toFixed(2))}
+                  placeholder={String(t.strokeWidth > 0 ? t.strokeWidth : +(t.size * 0.1).toFixed(2))}
                   unit="mm"
                 />
               </Row>
@@ -451,19 +589,19 @@ export default function App() {
 
           <Section title="Heights">
             <Row label="Height">
-              <Slider value={s.height} onChange={(v) => set('height', v)} min={0.2} max={10} step={0.1} unit="mm" />
+              <Slider value={t.height} onChange={(v) => setT('height', v)} min={0.2} max={10} step={0.1} unit="mm" />
             </Row>
             <Row label="Text height" hint="Make the letters taller (raised) or shorter than the rest">
-              <NumberInput value={s.textHeight} onChange={(v) => set('textHeight', v)} min={0.1} nullable placeholder={String(s.height)} unit="mm" />
+              <NumberInput value={t.textHeight} onChange={(v) => setT('textHeight', v)} min={0.1} nullable placeholder={String(t.height)} unit="mm" />
             </Row>
-            {s.strokeWidth > 0 && (
+            {t.strokeWidth > 0 && (
               <Row label="Outline height">
-                <NumberInput value={s.strokeHeight} onChange={(v) => set('strokeHeight', v)} min={0.1} nullable placeholder={String(s.height)} unit="mm" />
+                <NumberInput value={t.strokeHeight} onChange={(v) => setT('strokeHeight', v)} min={0.1} nullable placeholder={String(t.height)} unit="mm" />
               </Row>
             )}
-            {s.background && (
+            {t.background && (
               <Row label="Plate height">
-                <NumberInput value={s.backgroundHeight} onChange={(v) => set('backgroundHeight', v)} min={0.1} nullable placeholder={String(s.height)} unit="mm" />
+                <NumberInput value={t.backgroundHeight} onChange={(v) => setT('backgroundHeight', v)} min={0.1} nullable placeholder={String(t.height)} unit="mm" />
               </Row>
             )}
           </Section>
@@ -498,6 +636,11 @@ export default function App() {
             <Row label="Print face-down" hint="Mirrors the model, so the visible side is the smooth side that touched the bed">
               <Switch checked={s.flip} onChange={(v) => set('flip', v)} label="Print face-down" />
             </Row>
+            {s.texts.length > 1 && (
+              <Row label="Gap between texts" hint="Each text is a separate object; rows wrap at the bed's width (200 mm without a printer)">
+                <Slider value={s.gap} onChange={(v) => set('gap', v)} min={0} max={30} step={0.5} unit="mm" />
+              </Row>
+            )}
             <div className="grid grid-cols-3 gap-2 pt-1">
               {(['3mf', 'svg', 'png'] as const).map((format) => (
                 <button
@@ -514,6 +657,39 @@ export default function App() {
                   {format.toUpperCase()}
                 </button>
               ))}
+            </div>
+          </Section>
+
+          <Section title="Config file">
+            <p className="text-xs leading-relaxed text-zinc-500">
+              The same JSON the CLI reads with <code className="text-zinc-400">textrude --config</code>. Bundled fonts are saved as URLs, so the file works anywhere.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={saveConfig}
+                className="flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-md border border-zinc-700 text-sm font-medium text-zinc-200 hover:bg-zinc-800"
+              >
+                <FileDown className="size-4" /> Save
+              </button>
+              <button
+                type="button"
+                onClick={() => configInput.current?.click()}
+                title="Load a config file (or drop one anywhere, together with any font files it uses)"
+                className="flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-md border border-zinc-700 text-sm font-medium text-zinc-200 hover:bg-zinc-800"
+              >
+                <FileUp className="size-4" /> Load
+              </button>
+              <input
+                ref={configInput}
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files) openFiles(e.target.files);
+                  e.target.value = '';
+                }}
+              />
             </div>
           </Section>
 
@@ -550,7 +726,8 @@ export default function App() {
                   {model.width.toFixed(1)} × {model.depth.toFixed(1)} × {model.height.toFixed(1)} mm
                 </span>
                 <span className="text-zinc-400 tabular-nums">
-                  {model.parts.length} part{model.parts.length === 1 ? '' : 's'} · {filaments} filament{filaments === 1 ? '' : 's'} ·{' '}
+                  {model.texts.length > 1 && `${model.texts.length} objects · `}
+                  {partChips.length} part{partChips.length === 1 ? '' : 's'} · {filaments} filament{filaments === 1 ? '' : 's'} ·{' '}
                   {Math.round(model.time)} ms
                 </span>
               </>
@@ -576,6 +753,20 @@ export default function App() {
         </div>
 
         <div className="pointer-events-none absolute inset-x-3 bottom-3 flex flex-col items-start gap-2">
+          {configNotes.length > 0 && (
+            <div className="pointer-events-auto flex max-w-md gap-2 rounded-lg bg-zinc-950/80 px-3 py-2 text-xs text-amber-300 backdrop-blur">
+              <div className="space-y-1">
+                {configNotes.map((n, i) => (
+                  <p key={i} className="flex gap-2">
+                    <TriangleAlert className="mt-px size-3.5 shrink-0" /> {n}
+                  </p>
+                ))}
+              </div>
+              <button type="button" aria-label="Dismiss" onClick={() => setConfigNotes([])} className="h-fit cursor-pointer text-zinc-500 hover:text-zinc-200">
+                <X className="size-3.5" />
+              </button>
+            </div>
+          )}
           {(error || notes.length > 0 || tooManyColors) && (
             <div className="pointer-events-auto max-w-md space-y-1 rounded-lg bg-zinc-950/80 px-3 py-2 text-xs backdrop-blur">
               {error && (
@@ -599,7 +790,7 @@ export default function App() {
           )}
           {model && (
             <div className="pointer-events-auto flex max-w-full flex-wrap gap-1.5">
-              {model.parts.map((p) => {
+              {partChips.map((p) => {
                 const off = hidden.has(p.id);
                 return (
                   <button
@@ -637,7 +828,7 @@ export default function App() {
 
         {dragging && (
           <div className="absolute inset-3 flex items-center justify-center rounded-xl border-2 border-dashed border-sky-400 bg-sky-500/10 text-sm text-sky-200">
-            <Upload className="mr-2 size-4" /> Drop a font file to use it
+            <Upload className="mr-2 size-4" /> Drop a font file or a config file
           </div>
         )}
       </main>

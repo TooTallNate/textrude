@@ -4,7 +4,9 @@ A single-page web app for designing textrude prints, with a live 3D preview (thr
 
 - **Fonts**: a set of bundled Google Fonts, any font file you upload or drop on the page, or your installed fonts (Chromium browsers, through the [Local Font Access API](https://developer.mozilla.org/en-US/docs/Web/API/Local_Font_Access_API)).
 - **Emoji**: Twemoji or OpenMoji, loaded only when the text has non-ASCII characters.
-- **Shareable designs**: the settings are kept in the URL hash (bundled fonts only).
+- **Multiple texts**: each one is a separate object on the plate, with its own style (a new text starts with the selected one's), laid out in rows that fit the printer's bed.
+- **Config files**: save the design as the same JSON the CLI reads (`textrude --config design.json`), and load one back. Bundled fonts are saved as URLs, so a saved config works with the CLI anywhere. To load a config that uses font files, drop them on the page together with the config.
+- **Shareable designs**: the config is also kept in the URL hash, so designs survive reloads and can be shared (fonts that aren't bundled or from a URL have to be added again).
 
 ## Development
 

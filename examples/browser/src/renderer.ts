@@ -1,14 +1,5 @@
 import type { LogEvent } from 'textrude';
-import type { ExportFormat, ExportOptions, Model, RenderOptions, WorkerRequest, WorkerResponse } from './protocol';
-
-export interface RenderRequest {
-  text: string;
-  font: string;
-  fallbackFonts: string[];
-  options: RenderOptions;
-  /** Mirror the meshes, as they're printed face-down. */
-  flip: boolean;
-}
+import type { ExportFormat, ExportOptions, Model, RenderRequest, WorkerRequest, WorkerResponse } from './protocol';
 
 export type RenderOutcome = { model: Model; logs: LogEvent[]; error?: undefined } | { error: string; logs: LogEvent[]; model?: undefined };
 

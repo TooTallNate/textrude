@@ -1,7 +1,7 @@
 /**
  * Runs textrude off the main thread, so typing stays responsive while designs render.
  */
-import { textrude, TextrudeError, type LogEvent, type TextrudeResult } from 'textrude';
+import { arrange, textrude, TextrudeError, type LogEvent, type Plate, type TextrudeResult } from 'textrude';
 import type { Model, WorkerRequest, WorkerResponse } from './protocol';
 
 const ctx = self as unknown as {
@@ -28,7 +28,7 @@ function font(key: string): Promise<Uint8Array> {
   return data;
 }
 
-let last: TextrudeResult | null = null;
+let last: Plate | null = null;
 // Where messages go. A result keeps the logger it was rendered with, so this is swapped for each
 // request (exports log too, e.g. bed size warnings).
 let sink: LogEvent[] = [];
@@ -41,14 +41,24 @@ ctx.onmessage = async (e: MessageEvent<WorkerRequest>) => {
   } else if (msg.type === 'render') {
     const logs: LogEvent[] = (sink = []);
     try {
-      const [main, ...fallbacks] = await Promise.all([font(msg.font), ...msg.fallbackFonts.map(font)]);
+      const loaded = await Promise.all(msg.texts.map((t) => Promise.all([font(t.font), ...t.fallbackFonts.map(font)])));
       const start = performance.now();
-      const result = await textrude(msg.text, { ...msg.options, font: main, fallbackFonts: fallbacks, onLog });
-      const meshes = result.toMeshes({ flip: msg.flip });
-      last = result;
+      const results: TextrudeResult[] = [];
+      for (const [i, t] of msg.texts.entries()) {
+        const [main, ...fallbacks] = loaded[i]!;
+        try {
+          results.push(await textrude(t.text, { ...t.options, font: main, fallbackFonts: fallbacks, onLog }));
+        } catch (err) {
+          if (msg.texts.length > 1 && err instanceof Error) err.message = `Text ${i + 1}: ${err.message}`;
+          throw err;
+        }
+      }
+      const plate = arrange(results, { gap: msg.gap, maxWidth: msg.maxWidth, onLog });
+      const meshes = plate.toMeshes({ flip: msg.flip });
+      last = plate;
       const model: Model = {
         id: msg.id,
-        text: result.text,
+        texts: results.map((r) => r.text),
         parts: meshes.map(({ part, positions, indices }) => ({
           id: part.id,
           color: part.color,
@@ -58,11 +68,9 @@ ctx.onmessage = async (e: MessageEvent<WorkerRequest>) => {
           positions,
           indices,
         })),
-        width: result.width,
-        depth: result.depth,
-        height: result.height,
-        fonts: result.fonts,
-        bridged: result.bridged,
+        width: plate.width,
+        depth: plate.depth,
+        height: plate.height,
         time: performance.now() - start,
       };
       post({ type: 'rendered', id: msg.id, model, logs }, model.parts.flatMap((p) => [p.positions.buffer, p.indices.buffer]));
