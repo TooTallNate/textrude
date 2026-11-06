@@ -1,29 +1,10 @@
 /**
- * Font loading (files, URLs, installed names), fontkit workarounds, and bold/italic
+ * Font loading (files, URLs, bytes, installed names), fontkit workarounds, and bold/italic
  * resolution.
  */
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { createFont, openFaces, openFont, type Font, type Glyph } from './fontkit.js';
+import { createFont, openFaces, type Font, type Glyph } from './fontkit.js';
+import { basename, dirname, findFile, fontDirs, fontFiles, readFile } from './system.js';
 import { TextrudeError } from './errors.js';
-
-const FONT_EXT = /\.(ttf|otf|ttc|otc|woff2?|dfont)$/i;
-
-/** Directories searched for installed fonts: ./fonts first, then the system's font folders. */
-export const fontDirs = (): string[] =>
-  [
-    path.resolve('fonts'),
-    '/System/Library/Fonts',
-    '/Library/Fonts',
-    path.join(os.homedir(), 'Library/Fonts'),
-    '/usr/share/fonts',
-    '/usr/local/share/fonts',
-    path.join(os.homedir(), '.fonts'),
-    path.join(os.homedir(), '.local/share/fonts'),
-    path.join(process.env.WINDIR || 'C:\\Windows', 'Fonts'),
-    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Microsoft/Windows/Fonts'),
-  ].filter((d): d is string => Boolean(d));
 
 const norm = (s: string | null | undefined) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
@@ -36,20 +17,6 @@ function fontNames(font: Font): string[] {
     if (/^(regular|roman|book|normal)?$/i.test(sub)) names.add(fam);
   }
   return [...names];
-}
-
-function* walk(dir: string): Generator<string> {
-  let entries: fs.Dirent[];
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return;
-  }
-  for (const e of entries) {
-    const p = path.join(dir, e.name);
-    if (e.isDirectory()) yield* walk(p);
-    else if (FONT_EXT.test(e.name)) yield p;
-  }
 }
 
 /**
@@ -147,7 +114,7 @@ export function fontStyle(font: Font): FontStyle {
   return { weight, italic, family, condensed: /condensed|narrow|compressed/i.test(sub) };
 }
 
-const openPrepared = (file: string, index = 0) => prepareFont(openFont(file, index));
+const openPrepared = (file: string, index = 0) => prepareFont(createFont(readFile(file), index));
 
 export interface FontEntry {
   file: string;
@@ -165,12 +132,12 @@ export function systemFonts(): FontEntry[] {
   const entries: FontEntry[] = [];
   const seen = new Set<string>();
   for (const dir of fontDirs()) {
-    for (const file of walk(dir)) {
+    for (const file of fontFiles(dir)) {
       if (seen.has(file)) continue;
       seen.add(file);
       let faces: Font[];
       try {
-        faces = openFaces(file);
+        faces = openFaces(readFile(file));
       } catch {
         continue;
       }
@@ -188,31 +155,58 @@ export function systemFonts(): FontEntry[] {
 
 export interface LoadedFont {
   font: Font;
-  /** The font file (null for fonts loaded from a URL or buffer). */
+  /** The font file (null for fonts loaded from a URL or bytes). */
   file: string | null;
 }
 
+/** A font name, file path, or URL, or the contents of a font file. */
+export type FontSource = string | Uint8Array | ArrayBuffer;
+
+// Parsed fonts by their data, so passing the same bytes again (e.g. re-rendering in a live
+// preview) reuses the parsed font and its glyph cache.
+const parsed = new WeakMap<object, Map<number, Font>>();
+
+function fromBytes(data: Uint8Array | ArrayBuffer, index = 0): Font {
+  let byIndex = parsed.get(data);
+  if (!byIndex) parsed.set(data, (byIndex = new Map()));
+  let font = byIndex.get(index);
+  if (!font) {
+    try {
+      font = prepareFont(createFont(data instanceof Uint8Array ? data : new Uint8Array(data), index));
+    } catch (err) {
+      throw new TextrudeError(`could not read font: ${(err as Error).message}`);
+    }
+    byIndex.set(index, font);
+  }
+  return font;
+}
+
 /**
- * Load a font from a file path, URL, or installed font name (installed fonts include a
- * ./fonts directory in the working directory).
+ * Load a font from bytes, a URL, a file path, or an installed font name (installed fonts include
+ * a ./fonts directory in the working directory).
  */
-export async function loadFont(spec: string, index?: number): Promise<LoadedFont> {
-  if (/^https?:\/\//i.test(spec)) {
+export async function loadFont(spec: FontSource, index?: number): Promise<LoadedFont> {
+  if (typeof spec !== 'string') return { font: fromBytes(spec, index), file: null };
+  if (/^(https?|blob|data):/i.test(spec)) {
     const res = await fetch(spec);
     if (!res.ok) throw new TextrudeError(`could not download font (${res.status} ${res.statusText}): ${spec}`);
     return { font: prepareFont(createFont(new Uint8Array(await res.arrayBuffer()), index)), file: null };
   }
-  const p = spec.replace(/^~(?=$|\/)/, os.homedir());
-  if (fs.existsSync(p) && fs.statSync(p).isFile()) return { font: openPrepared(p, index), file: p };
+  const p = findFile(spec);
+  if (p) return { font: openPrepared(p, index), file: p };
 
   const target = norm(spec);
   let fallback: FontEntry | null = null;
   for (const entry of systemFonts()) {
     if (entry.names.some((n) => norm(n) === target)) return { font: openPrepared(entry.file, entry.index), file: entry.file };
-    if (!fallback && norm(path.parse(entry.file).name) === target) fallback = entry;
+    if (!fallback && norm(basename(entry.file)) === target) fallback = entry;
   }
   if (fallback) return { font: openPrepared(fallback.file, fallback.index), file: fallback.file };
-  throw new TextrudeError(`font "${spec}" not found (pass a font file path or URL, or use --list-fonts)`);
+  throw new TextrudeError(
+    fontDirs().length
+      ? `font "${spec}" not found (pass a font file path or URL, or use --list-fonts)`
+      : `font "${spec}" not found (installed fonts aren't available here: pass a font URL or the font file's contents)`,
+  );
 }
 
 const EMOJI_FONTS = ['Apple Color Emoji', 'Noto Color Emoji', 'Segoe UI Emoji', 'Twemoji Mozilla', 'OpenMoji Color'];
@@ -244,12 +238,9 @@ function findStyledFace(base: Font, baseFile: string | null, { bold, italic }: {
 
   const candidates: Pick<FontEntry, 'file' | 'index' | 'style' | 'familyName'>[] = [];
   if (baseFile) {
-    const dir = path.dirname(baseFile);
-    for (const name of fs.readdirSync(dir)) {
-      if (!FONT_EXT.test(name)) continue;
-      const file = path.join(dir, name);
+    for (const file of fontFiles(dirname(baseFile), false)) {
       try {
-        openFaces(file).forEach((face, index) => candidates.push({ file, index, style: fontStyle(face), familyName: face.familyName }));
+        openFaces(readFile(file)).forEach((face, index) => candidates.push({ file, index, style: fontStyle(face), familyName: face.familyName }));
       } catch {
         /* unreadable */
       }

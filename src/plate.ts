@@ -6,7 +6,10 @@ import { SCALE, bbox } from './geometry.js';
 import type { Shape } from './types.js';
 import { writeSvg, type SvgOptions } from './svg.js';
 import { renderPng, type PngOptions } from './raster.js';
-import { autoFilament, export3mf, plainName, resultInfo, type LogEvent, type Part, type TextrudeResult, type ThreeMfExportOptions } from './render.js';
+import {
+  autoFilament, export3mf, partMeshes, plainName, resultInfo,
+  type LogEvent, type MeshOptions, type Part, type PartMesh, type TextrudeResult, type ThreeMfExportOptions,
+} from './render.js';
 import { TextrudeError } from './errors.js';
 
 export interface ArrangeOptions {
@@ -40,6 +43,8 @@ export interface Plate {
   to3MF(options?: ThreeMfExportOptions): Uint8Array;
   /** A top-down preview image. */
   toPNG(options?: PngOptions): Uint8Array;
+  /** The triangle mesh of every object's parts, in their places on the plate. */
+  toMeshes(options?: MeshOptions): PartMesh[];
 }
 
 const translate = (shape: Shape, dx: number, dy: number): Shape => shape.map((path) => path.map(({ X, Y }) => ({ X: X + dx, Y: Y + dy })));
@@ -128,6 +133,9 @@ export function arrange(results: TextrudeResult[], options: ArrangeOptions = {})
     },
     toPNG(opts = {}) {
       return renderPng(parts, opts);
+    },
+    toMeshes(opts = {}) {
+      return partMeshes(parts, opts);
     },
   };
   return plate;

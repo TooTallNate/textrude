@@ -2,7 +2,7 @@
  * The textrude pipeline: text -> fonts -> layout -> stroke / background / bridges -> colors ->
  * parts, with SVG / 3MF / PNG output.
  */
-import { loadFont, resolveStyle, isColorFont, findEmojiFont } from './fonts.js';
+import { loadFont, resolveStyle, isColorFont, findEmojiFont, type FontSource } from './fonts.js';
 import { renderText, type FontChoice, type LayoutOptions } from './layout.js';
 import {
   JoinType, SCALE, area, bbox, clean, components, difference, intersection, makeBridges, offset, roundedRect, union,
@@ -11,7 +11,7 @@ import type { Shape } from './types.js';
 import { parseColor, toHex, lab, nearestIndex, reduceColors, type RGB } from './colors.js';
 import { parseAnsi } from './ansi.js';
 import { writeSvg, type SvgOptions } from './svg.js';
-import { write3mf, type MeshObject } from './threemf.js';
+import { extrude, write3mf, type MeshObject } from './threemf.js';
 import { renderPng, type PngOptions } from './raster.js';
 import { PRINTERS, projectSettings, type PrinterProfile } from './printers.js';
 import { TextrudeError } from './errors.js';
@@ -30,12 +30,12 @@ export interface LogEvent {
 
 export interface TextrudeOptions {
   // Font
-  /** Font name, file path, or URL. Default "Arial". */
-  font?: string;
+  /** Font name, file path, or URL, or the font file's contents. Default "Arial". */
+  font?: FontSource;
   /** Face index in a .ttc/.otc collection. */
   fontIndex?: number;
   /** Fonts for characters the main font lacks. Emoji also fall back to an installed color emoji font. */
-  fallbackFonts?: string[];
+  fallbackFonts?: FontSource[];
   /** Variable font axis settings, e.g. `{ wght: 700 }`. */
   variations?: Record<string, number>;
 
@@ -174,6 +174,36 @@ export interface TextrudeResult {
   to3MF(options?: ThreeMfExportOptions): Uint8Array;
   /** A top-down preview image. */
   toPNG(options?: PngOptions): Uint8Array;
+  /** The triangle mesh of each part, exactly as written to the 3MF (e.g. for a 3D preview). */
+  toMeshes(options?: MeshOptions): PartMesh[];
+}
+
+export interface MeshOptions {
+  /** Mirror for face-down printing. */
+  flip?: boolean;
+}
+
+/**
+ * A part's closed triangle mesh, in mm: the design is centered on the origin with +Y up (as it
+ * reads), extruded from z=0 to the part's height.
+ */
+export interface PartMesh {
+  part: Part;
+  /** x, y, z for each vertex. */
+  positions: Float32Array;
+  /** Three vertex indices per triangle, counter-clockwise seen from outside. */
+  indices: Uint32Array;
+}
+
+/** Meshes for parts that share one coordinate space, centered on all of them together. */
+export function partMeshes(parts: Part[], { flip = false }: MeshOptions = {}): PartMesh[] {
+  const b = bbox(parts.flatMap((p) => p.shape));
+  const cx = (b.minX + b.maxX) / 2 / SCALE;
+  const cy = (b.minY + b.maxY) / 2 / SCALE;
+  return parts.map((part) => {
+    const { verts, tris } = extrude(part.shape, part.height, cx, cy, flip);
+    return { part, positions: new Float32Array(verts.flat()), indices: new Uint32Array(tris.flat()) };
+  });
 }
 
 /**
@@ -470,6 +500,9 @@ export async function textrude(input: string, options: TextrudeOptions = {}): Pr
     },
     toPNG(opts = {}) {
       return renderPng(parts, opts);
+    },
+    toMeshes(opts = {}) {
+      return partMeshes(parts, opts);
     },
   };
   resultInfo.set(result, { palette, log });

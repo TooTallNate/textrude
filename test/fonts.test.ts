@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { loadFont, resolveStyle, fontStyle, isColorFont } from '../src/fonts.js';
 import { TextrudeError } from '../src/errors.js';
@@ -8,6 +9,19 @@ describe('loadFont', () => {
     const { font, file } = await loadFont(INTER);
     expect(font.fullName).toBe('Inter Regular');
     expect(file).toBe(INTER);
+  });
+
+  it('loads font data, reusing the parsed font for the same bytes', async () => {
+    const data = new Uint8Array(fs.readFileSync(INTER));
+    const a = await loadFont(data);
+    expect(a.font.fullName).toBe('Inter Regular');
+    expect(a.file).toBeNull();
+    expect((await loadFont(data)).font).toBe(a.font);
+    expect((await loadFont(data.slice().buffer)).font.fullName).toBe('Inter Regular');
+  });
+
+  it('throws a TextrudeError for unreadable font data', async () => {
+    await expect(loadFont(new Uint8Array([1, 2, 3, 4]))).rejects.toBeInstanceOf(TextrudeError);
   });
 
   it('throws a TextrudeError for unknown fonts', async () => {

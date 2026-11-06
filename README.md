@@ -102,6 +102,24 @@ fs.writeFileSync('names.3mf', plate.to3MF({ printer: 'snapmaker-u1' }));
 
 Invalid input throws a `TextrudeError`.
 
+### In the browser
+
+The library also runs in browsers (and other runtimes without a file system). There are no installed fonts there, so pass each font as a URL or as the font file's contents:
+
+```ts
+import { textrude } from 'textrude';
+
+const font = new Uint8Array(await (await fetch('/fonts/Inter.ttf')).arrayBuffer());
+const result = await textrude('Hello', { font, strokeWidth: 1.5, connect: true });
+
+// Each part's triangle mesh, the same geometry as in the 3MF: e.g. for a three.js preview.
+for (const { part, positions, indices } of result.toMeshes()) console.log(part.color, positions.length / 3, indices.length / 3);
+
+const blob = new Blob([result.to3MF()], { type: 'model/3mf' });
+```
+
+Passing the same `Uint8Array` again reuses the parsed font. [`examples/browser`](examples/browser) is a web app built this way, with a live 3D preview.
+
 ## Examples
 
 These images are SVG renders of each example (`--format svg`), shown on a gray backdrop. The 3MF versions have the same parts, extruded. `--flip` and part heights don't show in a flat image.

@@ -35,6 +35,9 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
+      - name: Type check the browser demo
+        run: npm run typecheck -w examples/browser
+
       - name: Build
         run: npm run build
 

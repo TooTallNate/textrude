@@ -225,6 +225,24 @@ describe('3MF output', () => {
   });
 });
 
+describe('meshes', () => {
+  it('returns one centered mesh per part, matching the 3MF', async () => {
+    const result = await render('Hi 😀', { strokeWidth: 1, connect: true, textHeight: 3 });
+    const meshes = result.toMeshes();
+    expect(meshes.map((m) => m.part)).toEqual(result.parts);
+    const reports = checkMeshes(result.to3MF());
+    meshes.forEach((m, i) => {
+      expect(m.positions.length / 3).toBe(reports[i]!.vertices);
+      expect(m.indices.length / 3).toBe(reports[i]!.triangles);
+      const zs = m.positions.filter((_, j) => j % 3 === 2);
+      expect(Math.max(...zs)).toBeCloseTo(m.part.height, 5);
+    });
+    const xs = meshes.flatMap((m) => [...m.positions.filter((_, j) => j % 3 === 0)]);
+    expect(Math.min(...xs)).toBeCloseTo(-result.width / 2, 3);
+    expect(Math.max(...xs)).toBeCloseTo(result.width / 2, 3);
+  });
+});
+
 describe('SVG output', () => {
   it('writes one path per part, sized in mm', async () => {
     const result = await render('Hi', { strokeWidth: 1 });

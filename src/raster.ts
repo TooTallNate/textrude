@@ -1,5 +1,5 @@
 /** Rasterize color regions to a PNG (for previews). */
-import pngjs from 'pngjs';
+import { encodePng } from './png.js';
 import { bbox } from './geometry.js';
 import type { Shape } from './types.js';
 import { parseColor, type RGB } from './colors.js';
@@ -89,7 +89,7 @@ export function renderPng(
   // Box-filter down to the output size.
   const colors = layers.map((l) => parseColor(l.color) ?? { r: 0, g: 0, b: 0 });
   const bg: RGB = parseColor(background) ?? { r: 0, g: 0, b: 0 };
-  const png = new pngjs.PNG({ width: W, height: H });
+  const png = { width: W, height: H, data: new Uint8Array(W * H * 4) };
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       let r = 0;
@@ -112,5 +112,5 @@ export function renderPng(
       png.data[i + 3] = 255;
     }
   }
-  return pngjs.PNG.sync.write(png);
+  return encodePng(png);
 }

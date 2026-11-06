@@ -1,7 +1,7 @@
 /**
  * The parts of fontkit textrude uses, typed, including a few internals (raw table access,
  * COLR/CPAL records, the glyph cache) that its published typings don't cover. All fontkit
- * objects enter through {@link openFont} / {@link createFont}.
+ * objects enter through {@link openFaces} / {@link createFont}.
  */
 import * as fontkit from 'fontkit';
 import type { PathCommand } from './outline.js';
@@ -89,16 +89,12 @@ interface Collection {
 
 const pick = (f: Font | Collection, index = 0): Font => ('fonts' in f && Array.isArray(f.fonts) ? f.fonts[index]! : (f as Font));
 
-/** All faces in a font file (one, or several for .ttc/.otc collections). */
-export function openFaces(file: string): Font[] {
-  const f = fontkit.openSync(file) as unknown as Font | Collection;
+/** All faces in font data (one, or several for .ttc/.otc collections). */
+export function openFaces(data: Uint8Array): Font[] {
+  const f = fontkit.create(data as Buffer) as unknown as Font | Collection;
   return 'fonts' in f && Array.isArray(f.fonts) ? f.fonts : [f as Font];
 }
 
-export function openFont(file: string, index = 0): Font {
-  return pick(fontkit.openSync(file) as unknown as Font | Collection, index);
-}
-
 export function createFont(data: Uint8Array, index = 0): Font {
-  return pick(fontkit.create(Buffer.from(data.buffer, data.byteOffset, data.byteLength)) as unknown as Font | Collection, index);
+  return pick(fontkit.create(data as Buffer) as unknown as Font | Collection, index);
 }

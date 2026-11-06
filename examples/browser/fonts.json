@@ -1,0 +1,38 @@
+{
+  "fonts": [
+    { "name": "Archivo Black", "category": "Display", "file": "ArchivoBlack-Regular.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/archivoblack/ArchivoBlack-Regular.ttf" },
+    { "name": "Bebas Neue", "category": "Display", "file": "BebasNeue-Regular.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/bebasneue/BebasNeue-Regular.ttf" },
+    { "name": "Bungee", "category": "Display", "file": "Bungee-Regular.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/bungee/Bungee-Regular.ttf" },
+    { "name": "Bangers", "category": "Display", "file": "Bangers-Regular.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/bangers/Bangers-Regular.ttf" },
+    { "name": "Black Ops One", "category": "Display", "file": "BlackOpsOne-Regular.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/blackopsone/BlackOpsOne-Regular.ttf" },
+    { "name": "Lilita One", "category": "Display", "file": "LilitaOne-Regular.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/lilitaone/LilitaOne-Regular.ttf" },
+    { "name": "Luckiest Guy", "category": "Display", "file": "LuckiestGuy-Regular.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/apache/luckiestguy/LuckiestGuy-Regular.ttf" },
+    { "name": "Righteous", "category": "Display", "file": "Righteous-Regular.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/righteous/Righteous-Regular.ttf" },
+    { "name": "Titan One", "category": "Display", "file": "TitanOne-Regular.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/titanone/TitanOne-Regular.ttf" },
+
+    { "name": "Inter", "category": "Sans serif", "file": "Inter.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/inter/Inter%5Bopsz,wght%5D.ttf", "italic": { "file": "Inter-Italic.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/inter/Inter-Italic%5Bopsz,wght%5D.ttf" } },
+    { "name": "Geist", "category": "Sans serif", "file": "Geist.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/geist/Geist%5Bwght%5D.ttf", "italic": { "file": "Geist-Italic.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/geist/Geist-Italic%5Bwght%5D.ttf" } },
+    { "name": "Roboto", "category": "Sans serif", "file": "Roboto.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/roboto/Roboto%5Bwdth,wght%5D.ttf", "italic": { "file": "Roboto-Italic.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/roboto/Roboto-Italic%5Bwdth,wght%5D.ttf" } },
+    { "name": "Montserrat", "category": "Sans serif", "file": "Montserrat.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/Montserrat%5Bwght%5D.ttf", "italic": { "file": "Montserrat-Italic.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/Montserrat-Italic%5Bwght%5D.ttf" } },
+    { "name": "Rubik", "category": "Sans serif", "file": "Rubik.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/rubik/Rubik%5Bwght%5D.ttf", "italic": { "file": "Rubik-Italic.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/rubik/Rubik-Italic%5Bwght%5D.ttf" } },
+    { "name": "Nunito", "category": "Sans serif", "file": "Nunito.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/nunito/Nunito%5Bwght%5D.ttf", "italic": { "file": "Nunito-Italic.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/nunito/Nunito-Italic%5Bwght%5D.ttf" } },
+    { "name": "Fredoka", "category": "Sans serif", "file": "Fredoka.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/fredoka/Fredoka%5Bwdth,wght%5D.ttf" },
+    { "name": "Space Grotesk", "category": "Sans serif", "file": "SpaceGrotesk.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/spacegrotesk/SpaceGrotesk%5Bwght%5D.ttf" },
+    { "name": "Oswald", "category": "Sans serif", "file": "Oswald.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/oswald/Oswald%5Bwght%5D.ttf" },
+
+    { "name": "Playfair Display", "category": "Serif", "file": "PlayfairDisplay.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/playfairdisplay/PlayfairDisplay%5Bwght%5D.ttf", "italic": { "file": "PlayfairDisplay-Italic.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/playfairdisplay/PlayfairDisplay-Italic%5Bwght%5D.ttf" } },
+
+    { "name": "Pacifico", "category": "Script", "file": "Pacifico-Regular.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/pacifico/Pacifico-Regular.ttf" },
+    { "name": "Lobster", "category": "Script", "file": "Lobster-Regular.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/lobster/Lobster-Regular.ttf" },
+    { "name": "Dancing Script", "category": "Script", "file": "DancingScript.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/dancingscript/DancingScript%5Bwght%5D.ttf" },
+    { "name": "Caveat", "category": "Script", "file": "Caveat.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/caveat/Caveat%5Bwght%5D.ttf" },
+    { "name": "Permanent Marker", "category": "Script", "file": "PermanentMarker-Regular.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/apache/permanentmarker/PermanentMarker-Regular.ttf" },
+
+    { "name": "JetBrains Mono", "category": "Monospace", "file": "JetBrainsMono.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/jetbrainsmono/JetBrainsMono%5Bwght%5D.ttf", "italic": { "file": "JetBrainsMono-Italic.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/jetbrainsmono/JetBrainsMono-Italic%5Bwght%5D.ttf" } },
+    { "name": "Geist Mono", "category": "Monospace", "file": "GeistMono.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/geistmono/GeistMono%5Bwght%5D.ttf", "italic": { "file": "GeistMono-Italic.ttf", "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/geistmono/GeistMono-Italic%5Bwght%5D.ttf" } }
+  ],
+  "emoji": [
+    { "name": "Twemoji", "file": "Twemoji.Mozilla.ttf", "url": "https://github.com/mozilla/twemoji-colr/releases/download/v0.7.0/Twemoji.Mozilla.ttf", "credit": "Twemoji © Twitter, Inc and other contributors, CC BY 4.0", "license": "https://creativecommons.org/licenses/by/4.0/" },
+    { "name": "OpenMoji", "file": "OpenMoji-color-glyf_colr_0.ttf", "url": "https://github.com/hfg-gmuend/openmoji/raw/15.1.0/font/OpenMoji-color-glyf_colr_0/OpenMoji-color-glyf_colr_0.ttf", "credit": "OpenMoji © the OpenMoji contributors, CC BY-SA 4.0", "license": "https://creativecommons.org/licenses/by-sa/4.0/" }
+  ]
+}

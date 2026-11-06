@@ -5,7 +5,7 @@
  * CBLC/CBDT and sbix are parsed directly from the font bytes: fontkit doesn't read CBDT, and
  * its CBLC parsing is incomplete.
  */
-import pngjs from 'pngjs';
+import { decodePng } from './png.js';
 import { kmeans, lab, nearestIndex, type RGB } from './colors.js';
 import type { Contour } from './outline.js';
 import type { Font, Glyph } from './fontkit.js';
@@ -210,7 +210,7 @@ export function bitmapGlyph(font: Font, gid: number): Bitmap | null {
     return null;
   }
   if (!img) return null;
-  const png = pngjs.PNG.sync.read(Buffer.from(img.png));
+  const png = decodePng(img.png);
   return {
     width: png.width,
     height: png.height,

@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# downloaded by scripts/download-fonts.mjs
+public/fonts/
