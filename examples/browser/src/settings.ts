@@ -1,6 +1,6 @@
 import { parseColor, toHex } from 'textrude/colors';
 import { PRINTERS } from 'textrude/printers';
-import { BUNDLED, EMOJI_FONTS, type FontRef, type LocalFace, type UploadedFont } from './fonts';
+import { BUNDLED, EMOJI_FONTS, bundledFile, type FontRef, type LocalFace, type UploadedFont } from './fonts';
 import type { RenderOptions } from './protocol';
 
 /** The design of one text (one object on the plate). */
@@ -171,7 +171,7 @@ function fontSpec(t: TextSettings, ctx: FontContext): { font: string; italic: bo
   if (f.kind === 'bundled') {
     const b = BUNDLED.find((x) => x.name === f.name) ?? BUNDLED[0]!;
     // The italic face is its own file; `italic` then just confirms it (nothing is synthesized).
-    return { font: t.italic && b.italic ? b.italic.url : b.url, italic: t.italic };
+    return { font: bundledFile(b, f.style, t.italic).url, italic: t.italic };
   }
   if (f.kind === 'url') return { font: f.url, italic: t.italic };
   if (f.kind === 'local') return { font: f.family, italic: t.italic };
@@ -298,6 +298,8 @@ export function fromConfig(raw: unknown, ctx: FontContext): { settings: Settings
 
   const fontRef = (spec: string): { font: FontRef; italic?: boolean } | null => {
     for (const b of BUNDLED) {
+      const style = b.styles?.find((s) => spec === s.url || spec.endsWith(`/${s.file}`));
+      if (style) return { font: { kind: 'bundled', name: b.name, style: style.name } };
       if (spec === b.url || spec.endsWith(`/${b.file}`)) return { font: { kind: 'bundled', name: b.name } };
       if (b.italic && (spec === b.italic.url || spec.endsWith(`/${b.italic.file}`))) return { font: { kind: 'bundled', name: b.name }, italic: true };
     }

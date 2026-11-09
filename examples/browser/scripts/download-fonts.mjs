@@ -11,7 +11,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outDir = path.join(root, 'public', 'fonts');
 const { fonts, emoji } = JSON.parse(fs.readFileSync(path.join(root, 'fonts.json'), 'utf8'));
 
-const files = [...fonts.flatMap((f) => [f, f.italic].filter(Boolean)), ...emoji];
+const all = [...fonts.flatMap((f) => [f, f.italic, ...(f.styles ?? [])].filter(Boolean)), ...emoji];
+const files = [...new Map(all.map((f) => [f.file, f])).values()];
 fs.mkdirSync(outDir, { recursive: true });
 
 const missing = files.filter((f) => !fs.existsSync(path.join(outDir, f.file)));

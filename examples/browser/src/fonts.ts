@@ -5,7 +5,7 @@ import manifest from '../fonts.json';
  * the Local Font Access API), an uploaded file, or a URL (from a config file).
  */
 export type FontRef =
-  | { kind: 'bundled'; name: string }
+  | { kind: 'bundled'; name: string; /** One of the font's `styles` (default: the first). */ style?: string }
   | { kind: 'local'; family: string }
   | { kind: 'upload'; id: string }
   | { kind: 'url'; url: string };
@@ -17,6 +17,16 @@ export interface BundledFont {
   /** Where the font comes from (also used for it in config files, so they work with the CLI). */
   url: string;
   italic?: { file: string; url: string };
+  /** Variants that are separate font files (like Geist Pixel's Square, Grid, ...). */
+  styles?: { name: string; file: string; url: string }[];
+}
+
+/** The file of a bundled font for a style and italic. `italic` is whether that file is italic. */
+export function bundledFile(b: BundledFont, style: string | undefined, italic: boolean): { file: string; url: string; italic: boolean } {
+  const variant = b.styles?.find((s) => s.name === style) ?? b.styles?.[0];
+  if (variant) return { file: variant.file, url: variant.url, italic: false };
+  if (italic && b.italic) return { ...b.italic, italic: true };
+  return { file: b.file, url: b.url, italic: false };
 }
 
 export const BUNDLED: BundledFont[] = manifest.fonts;

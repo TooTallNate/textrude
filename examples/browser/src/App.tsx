@@ -8,7 +8,7 @@ import { PRINTERS } from 'textrude/printers';
 import { Viewer, type ViewerHandle } from './components/Viewer';
 import { ColorInput, ColorList, luminance, NumberInput, Row, Section, Segmented, Select, Slider, Switch, ToggleButton } from './components/ui';
 import {
-  BUNDLED, CATEGORIES, EMOJI_FONTS, canUseLocalFonts, fontUrl, localFamilies, pickLocalFace, type FontRef, type LocalFace, type UploadedFont,
+  BUNDLED, CATEGORIES, EMOJI_FONTS, bundledFile, canUseLocalFonts, fontUrl, localFamilies, pickLocalFace, type FontRef, type LocalFace, type UploadedFont,
 } from './fonts';
 import type { ExportFormat, Model, TextRequest } from './protocol';
 import { Renderer } from './renderer';
@@ -121,9 +121,9 @@ export default function App() {
         if (x.font.kind === 'bundled') {
           const name = x.font.name;
           const b = BUNDLED.find((f) => f.name === name) ?? BUNDLED[0]!;
-          const useItalic = x.italic && b.italic;
-          font = fontUrl(useItalic ? b.italic!.file : b.file);
-          if (useItalic) style = { ...style, italic: false };
+          const file = bundledFile(b, x.font.style, x.italic);
+          font = fontUrl(file.file);
+          if (file.italic) style = { ...style, italic: false };
         } else if (x.font.kind === 'url') {
           font = x.font.url;
         } else if (x.font.kind === 'local') {
@@ -286,6 +286,9 @@ export default function App() {
   const tooManyColors = printer?.toolheads != null && filaments > printer.toolheads;
   const notes = logs.filter((l) => l.level === 'warn' || l.level === 'note');
   const multiline = t.text.includes('\n');
+  const tFont = t.font;
+  const fontStyles = tFont.kind === 'bundled' ? BUNDLED.find((b) => b.name === tFont.name)?.styles : undefined;
+  const fontStyle = tFont.kind === 'bundled' ? (fontStyles?.find((v) => v.name === tFont.style) ?? fontStyles?.[0])?.name : undefined;
   // What textrude colors bridges by default: the outline, else the text.
   const autoBridgeColor = t.strokeWidth > 0 ? t.strokeColor : t.hollow ? '#ffffff' : (t.letterColors?.[0] ?? t.color);
   const s = settings;
@@ -446,6 +449,15 @@ export default function App() {
                 }}
               />
             </Row>
+            {fontStyles && (
+              <Row label="Variant">
+                <Segmented
+                  value={fontStyle!}
+                  onChange={(v) => tFont.kind === 'bundled' && setT('font', { ...tFont, style: v })}
+                  options={fontStyles.map((v) => ({ value: v.name, label: v.name }))}
+                />
+              </Row>
+            )}
             <Row label="Style">
               <ToggleButton pressed={t.bold} onChange={(v) => setT('bold', v)} title="Bold">
                 <Bold className="size-4" />
@@ -715,6 +727,10 @@ export default function App() {
               Fonts from{' '}
               <a className="underline hover:text-zinc-300" href="https://fonts.google.com" target="_blank" rel="noreferrer">
                 Google Fonts
+              </a>{' '}
+              and{' '}
+              <a className="underline hover:text-zinc-300" href="https://vercel.com/font" target="_blank" rel="noreferrer">
+                Geist
               </a>{' '}
               (OFL / Apache 2.0).{' '}
               {EMOJI_FONTS.map((e) => (
