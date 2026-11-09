@@ -29,6 +29,8 @@ export interface TextSettings {
 
   connect: boolean;
   bridgeWidth: number | null;
+  /** Null: the outline's color, or the text's without an outline. */
+  bridgeColor: string | null;
 
   background: boolean;
   backgroundColor: string;
@@ -79,6 +81,7 @@ export const DEFAULT_TEXT: TextSettings = {
 
   connect: true,
   bridgeWidth: null,
+  bridgeColor: null,
 
   background: false,
   backgroundColor: '#1e3a8a',
@@ -121,6 +124,7 @@ export function renderOptions(t: TextSettings, s: Settings, style: { bold: boole
     strokeJoin: t.strokeJoin,
     connect: t.connect && !t.background,
     bridgeWidth: t.bridgeWidth ?? undefined,
+    bridgeColor: t.bridgeColor ?? undefined,
     background: t.background ? t.backgroundColor : undefined,
     backgroundPadding: t.backgroundPadding ?? undefined,
     backgroundRadius: t.backgroundRadius,
@@ -204,6 +208,7 @@ function textConfig(t: TextSettings, ctx: FontContext): Config {
   } else if (t.connect) {
     o.connect = true;
     if (t.bridgeWidth != null) o.bridgeWidth = t.bridgeWidth;
+    if (t.bridgeColor != null) o.bridgeColor = t.bridgeColor;
   }
   if (t.height !== CLI_DEFAULTS.height) o.height = t.height;
   if (t.textHeight != null) o.textHeight = t.textHeight;
@@ -246,12 +251,14 @@ const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 /** Options this app understands (anything else in a config file is reported and ignored). */
 const TEXT_KEYS = new Set([
   'text', 'font', 'bold', 'italic', 'underline', 'strikethrough', 'size', 'color', 'letterColors', 'align', 'lineSpacing',
-  'letterSpacing', 'strokeWidth', 'strokeColor', 'strokeAlign', 'strokeJoin', 'connect', 'bridgeWidth', 'background',
+  'letterSpacing', 'strokeWidth', 'strokeColor', 'strokeAlign', 'strokeJoin', 'connect', 'bridgeWidth', 'bridgeColor', 'background',
   'backgroundPadding', 'backgroundRadius', 'height', 'textHeight', 'strokeHeight', 'backgroundHeight',
   // Read from the top level, but the CLI also allows them per text.
   'fallbackFont', 'maxColors',
 ]);
 const PLATE_KEYS = new Set(['palette', 'printer', 'flip', 'gap', 'fallbackFont', 'maxColors']);
+/** CLI options about where and how output is written, which don't apply here. */
+const CLI_ONLY_KEYS = new Set(['output', 'format', 'preview', 'previewPng', 'quiet', 'config', 'listFonts', 'version', 'help']);
 
 /** Read a CLI config file into settings, with notes about anything that couldn't be used. */
 export function fromConfig(raw: unknown, ctx: FontContext): { settings: Settings; notes: string[] } {
@@ -311,7 +318,7 @@ export function fromConfig(raw: unknown, ctx: FontContext): { settings: Settings
     const t: TextSettings = { ...DEFAULT_TEXT, ...cliDefaults, text: '', connect: false };
     for (const [key, v] of Object.entries(item)) {
       if (!TEXT_KEYS.has(key)) {
-        if (!PLATE_KEYS.has(key)) ignored.add(key);
+        if (!PLATE_KEYS.has(key) && !CLI_ONLY_KEYS.has(key)) ignored.add(key);
         continue;
       }
       switch (key) {
@@ -363,6 +370,11 @@ export function fromConfig(raw: unknown, ctx: FontContext): { settings: Settings
         case 'letterColors':
           t.letterColors = colors(key, v) ?? null;
           break;
+        case 'bridgeColor': {
+          const c = color(key, v);
+          if (c) t.bridgeColor = c;
+          break;
+        }
         case 'strokeColor': {
           const c = color(key, v);
           if (c) {

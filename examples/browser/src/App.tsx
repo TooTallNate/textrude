@@ -286,6 +286,8 @@ export default function App() {
   const tooManyColors = printer?.toolheads != null && filaments > printer.toolheads;
   const notes = logs.filter((l) => l.level === 'warn' || l.level === 'note');
   const multiline = t.text.includes('\n');
+  // What textrude colors bridges by default: the outline, else the text.
+  const autoBridgeColor = t.strokeWidth > 0 ? t.strokeColor : t.hollow ? '#ffffff' : (t.letterColors?.[0] ?? t.color);
   const s = settings;
   const urlFonts = [...new Set(s.texts.flatMap((x) => (x.font.kind === 'url' ? [x.font.url] : [])))];
 
@@ -583,6 +585,20 @@ export default function App() {
                   placeholder={String(t.strokeWidth > 0 ? t.strokeWidth : +(t.size * 0.1).toFixed(2))}
                   unit="mm"
                 />
+              </Row>
+            )}
+            {!t.background && t.connect && (
+              <Row label={t.strokeWidth > 0 ? 'Bridges match outline' : 'Bridges match text'}>
+                <Switch
+                  checked={t.bridgeColor == null}
+                  onChange={(v) => setT('bridgeColor', v ? null : autoBridgeColor)}
+                  label="Bridges use the same color"
+                />
+              </Row>
+            )}
+            {!t.background && t.connect && t.bridgeColor != null && (
+              <Row label="Bridge color" hint="Bridges in their own color become a separate part (filament)">
+                <ColorInput value={t.bridgeColor} onChange={(v) => setT('bridgeColor', v)} />
               </Row>
             )}
           </Section>
