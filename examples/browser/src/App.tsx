@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { zipSync } from 'fflate';
 import {
   AlignCenter, AlignLeft, AlignRight, ArrowDownToLine, Bold, Box, Eye, EyeOff, Info, Italic, LoaderCircle, Rotate3d,
   FileDown, FileUp, Plus, Strikethrough, TriangleAlert, Underline, Upload, X,
@@ -17,7 +18,10 @@ import {
 } from './settings';
 import { cn, download } from './lib/utils';
 
-const FONT_FILE = /\.(ttf|otf|ttc|otc|woff2?)$/i;
+const FONT_FILE = /\.(ttf|otf|ttc|otc|woff2?|zip)$/i;
+// A BMFont bitmap font is a .fnt plus its page images; picked together, they're zipped into one font.
+const BMFONT_FILE = /\.fnt$/i;
+const BMFONT_PAGE = /\.(png|tga)$/i;
 const ROLE_LABELS: Record<string, string> = { text: 'Text', color: 'Emoji', stroke: 'Outline', bridge: 'Bridges', background: 'Background' };
 
 const fontValue = (f: FontRef) =>
@@ -32,7 +36,8 @@ function parseFontValue(v: string): FontRef {
   return { kind: 'bundled', name };
 }
 
-const fontLabel = (url: string) => decodeURIComponent(url.replace(/[?#].*$/, '').replace(/^.*\//, '')).replace(FONT_FILE, '') || url;
+const fontLabel = (url: string) =>
+  decodeURIComponent(url.replace(/[?#].*$/, '').replace(/^.*\//, '')).replace(FONT_FILE, '').replace(BMFONT_FILE, '') || url;
 
 /** A file name for the design: its texts, without emoji or punctuation. */
 function fileName(texts: string[]) {
@@ -193,6 +198,12 @@ export default function App() {
     async (list: FileList | File[]) => {
       const files = [...list];
       const fonts = files.filter((f) => FONT_FILE.test(f.name));
+      const pages = files.filter((f) => BMFONT_PAGE.test(f.name));
+      for (const fnt of files.filter((f) => BMFONT_FILE.test(f.name))) {
+        const entries: Record<string, Uint8Array> = { [fnt.name]: new Uint8Array(await fnt.arrayBuffer()) };
+        for (const page of pages) entries[page.name] = new Uint8Array(await page.arrayBuffer());
+        fonts.push(new File([zipSync(entries) as Uint8Array<ArrayBuffer>], fnt.name.replace(BMFONT_FILE, '.zip'), { lastModified: fnt.lastModified }));
+      }
       const config = files.find((f) => /\.json$/i.test(f.name) || f.type === 'application/json');
       const added = fonts.length ? await addFontFiles(fonts) : [];
       // Fonts dropped together with a config are available to it.
@@ -430,7 +441,7 @@ export default function App() {
               </Select>
               <button
                 type="button"
-                title="Upload a font file (TTF, OTF, WOFF, WOFF2, TTC), or drop one anywhere"
+                title="Upload a font file (TTF, OTF, WOFF, WOFF2, TTC, or a BMFont .fnt with its pages or as a .zip), or drop one anywhere"
                 aria-label="Upload a font file"
                 onClick={() => fileInput.current?.click()}
                 className="flex size-8 cursor-pointer items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-400 hover:text-zinc-200"
@@ -440,7 +451,7 @@ export default function App() {
               <input
                 ref={fileInput}
                 type="file"
-                accept=".ttf,.otf,.ttc,.otc,.woff,.woff2"
+                accept=".ttf,.otf,.ttc,.otc,.woff,.woff2,.fnt,.zip,.png,.tga"
                 multiple
                 className="hidden"
                 onChange={(e) => {

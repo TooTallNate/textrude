@@ -1,6 +1,8 @@
 /**
  * Runs textrude off the main thread, so typing stays responsive while designs render.
  */
+import { isBmfont, parseBmfont } from '@tootallnate/bitmap-font';
+import { zipSync } from 'fflate';
 import { arrange, textrude, TextrudeError, type LogEvent, type Plate, type TextrudeResult } from 'textrude';
 import type { Model, WorkerRequest, WorkerResponse } from './protocol';
 
@@ -14,14 +16,30 @@ const post = (msg: WorkerResponse, transfer: Transferable[] = []) => ctx.postMes
 // passed to textrude every time, so it reuses the parsed font.
 const fonts = new Map<string, Promise<Uint8Array>>();
 
+async function download(url: string, what = 'font'): Promise<Uint8Array> {
+  const res = await fetch(url);
+  if (!res.ok) throw new TextrudeError(`could not download ${what} (${res.status}): ${url}`);
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+/**
+ * A font URL's data. A BMFont .fnt comes with its page images, fetched relative to it and zipped
+ * together, the same as an uploaded .fnt and its pages.
+ */
+async function downloadFont(url: string): Promise<Uint8Array> {
+  const data = await download(url);
+  if (!isBmfont(data)) return data;
+  const name = decodeURIComponent(new URL(url).pathname.split('/').pop() || 'font.fnt');
+  const files: Record<string, Uint8Array> = { [name]: data };
+  for (const page of parseBmfont(data).pages) files[page] = await download(new URL(page, url).href, 'BMFont page');
+  return zipSync(files);
+}
+
 function font(key: string): Promise<Uint8Array> {
   let data = fonts.get(key);
   if (!data) {
     if (!/^(https?|blob):/.test(key)) throw new TextrudeError(`font "${key}" isn't loaded`);
-    data = fetch(key).then(async (res) => {
-      if (!res.ok) throw new TextrudeError(`could not download font (${res.status}): ${key}`);
-      return new Uint8Array(await res.arrayBuffer());
-    });
+    data = downloadFont(key);
     data.catch(() => fonts.delete(key));
     fonts.set(key, data);
   }

@@ -19,7 +19,7 @@ export default defineConfig({
   },
   // The worker's dependencies (otherwise they're found on first load, which reloads the page).
   optimizeDeps: {
-    include: ['clipper-lib', 'fflate', 'fontkit', 'libtess'],
+    include: ['@tootallnate/bitmap-font', 'clipper-lib', 'fflate', 'fontkit', 'libtess'],
   },
   build: {
     // three.js alone is ~600 kB.
