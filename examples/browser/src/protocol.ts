@@ -1,4 +1,4 @@
-import type { LogEvent, Role, TextrudeOptions } from 'textrude';
+import type { Flush, LogEvent, Role, TextrudeOptions } from 'textrude';
 
 /** Options passed straight through to `textrude()`. Fonts are sent separately, by key. */
 export type RenderOptions = Omit<TextrudeOptions, 'font' | 'fallbackFonts' | 'onLog'>;
@@ -8,6 +8,7 @@ export type ExportFormat = '3mf' | 'svg' | 'png';
 export interface ExportOptions {
   printer?: string;
   flip?: boolean;
+  flush?: Flush;
 }
 
 /** One text on the plate. */
@@ -27,6 +28,8 @@ export interface RenderRequest {
   maxWidth?: number;
   /** Mirror the meshes, as they're printed face-down. */
   flip: boolean;
+  /** The side that stays flat (default: the side on the bed). */
+  flush?: Flush;
 }
 
 export type WorkerRequest =

@@ -44,6 +44,17 @@ describe('cli', () => {
     expect(checkMeshes(data).every((m) => m.badEdges === 0)).toBe(true);
   });
 
+  it('raises text on the background, and places it with --flip and --flush', async () => {
+    const out = path.join(tmp, 'raised.3mf');
+    const args = ['Hi', '-f', INTER, '--background', 'navy', '--raised', '--text-height', '1', '-q', '-o', out];
+    const z = () => Object.fromEntries(checkMeshes(fs.readFileSync(out)).map((m) => [m.name.split(' ')[0], [m.minZ, m.maxZ]]));
+    expect((await cli(args)).code).toBe(0);
+    expect(z()).toEqual({ text: [2, 3], background: [0, 2] });
+    expect((await cli([...args, '--flip'])).code).toBe(0);
+    expect(z()).toEqual({ text: [0, 1], background: [1, 3] });
+    expect((await cli([...args, '--flush', 'sideways'])).code).toBe(1);
+  });
+
   it('reads text from stdin, with newlines and ANSI colors', async () => {
     const { code, stdout } = await cli(['-f', INTER, '-q'], '\x1b[31mRed\n\x1b[34mBlue\n');
     expect(code).toBe(0);

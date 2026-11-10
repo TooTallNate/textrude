@@ -36,6 +36,7 @@ describe('option matrix', () => {
     ['background pill', 'Pill 😀', { color: 'white', background: 'navy', backgroundRadius: 999 }],
     ['background + raised text', 'Raised', { background: 'gold', backgroundRadius: 3, textHeight: 3 }],
     ['background + separate stroke', 'Stroke', { strokeWidth: 2, strokeColor: 'gold', background: 'navy', backgroundRadius: 999 }],
+    ['raised on background', 'Raised 😀', { strokeWidth: 1, background: 'navy', raised: true, textHeight: 1 }],
     ['ANSI colors + bold', '\x1b[31mRed \x1b[34mBlue', { bold: true, synthetic: true, strokeWidth: 1, connect: true }],
     ['palette', '🔥 Fire', { palette: ['white', 'black', 'orange', 'gold'], strokeWidth: 1, connect: true }],
     ['single path', 'One piece', { strokeWidth: 1.5, connect: true, singlePath: true }],
@@ -159,6 +160,31 @@ describe('stroke, background, and bridges', () => {
     expect(Object.fromEntries(result.parts.map((p) => [p.roles[0], p.height]))).toEqual({ text: 3, background: 2 });
     expect(result.height).toBe(3);
   });
+
+  it('puts raised parts on top of a solid background', async () => {
+    const inset = await render('Hi', { strokeWidth: 1, background: 'navy', height: 2 });
+    const result = await render('Hi', { strokeWidth: 1, background: 'navy', height: 2, textHeight: 1, raised: true });
+    const byRole = Object.fromEntries(result.parts.map((p) => [p.roles.join('+'), p]));
+    // The stroke (in the background color) no longer merges into the plate: it's on top of it.
+    expect(Object.keys(byRole).sort()).toEqual(['background', 'stroke', 'text']);
+    expect(byRole.background!.z).toBe(0);
+    expect([byRole.text!.z, byRole.text!.height]).toEqual([2, 1]);
+    expect([byRole.stroke!.z, byRole.stroke!.height]).toEqual([2, 2]);
+    expect(result.height).toBe(4);
+    // The plate covers the whole design, where the inset one has holes for it.
+    const plateArea = (r: typeof result) => r.parts.filter((p) => p.roles.includes('background')).reduce((a, p) => a + p.shape.length, 0);
+    expect(plateArea(result)).toBe(1);
+    expect(plateArea(inset)).toBeGreaterThan(1);
+    // The plate is drawn first in flat images, so the raised parts cover it.
+    expect(result.toSVG().match(/<path id="([^"]+)"/)![1]).toMatch(/^background/);
+  });
+
+  it('ignores raised without a background', async () => {
+    const events: string[] = [];
+    const result = await render('Hi', { raised: true, onLog: (e) => events.push(e.message) });
+    expect(result.parts.every((p) => p.z === 0)).toBe(true);
+    expect(events.some((m) => /raised only applies with a background/.test(m))).toBe(true);
+  });
 });
 
 describe('filaments', () => {
@@ -219,6 +245,30 @@ describe('3MF output', () => {
     expect(flipped!.maxX).toBeCloseTo(-normal!.minX, 3);
   });
 
+  it('places parts by flip and flush', async () => {
+    const result = await render('Hi', { background: 'gold', height: 2, textHeight: 3 });
+    const z = (opts: Parameters<typeof result.to3MF>[0]) =>
+      Object.fromEntries(checkMeshes(result.to3MF(opts)).map((m) => [m.name.split(' ')[0], [m.minZ, m.maxZ]]));
+    // Face-up, everything starts on the bed and the text stands out of the face.
+    expect(z({})).toEqual({ text: [0, 3], background: [0, 2] });
+    // Face-down, the face is flat on the bed by default...
+    expect(z({ flip: true })).toEqual({ text: [0, 3], background: [0, 2] });
+    // ...or flush at the back, with the plate behind the text.
+    expect(z({ flip: true, flush: 'back' })).toEqual({ text: [0, 3], background: [1, 3] });
+    expect(z({ flush: 'face' })).toEqual({ text: [0, 3], background: [1, 3] });
+    expect(() => result.to3MF({ flush: 'top' as 'face' })).toThrow(TextrudeError);
+  });
+
+  it('turns raised designs over with flip', async () => {
+    const result = await render('Hi', { strokeWidth: 1, strokeColor: 'red', background: 'gold', height: 2, textHeight: 1, raised: true });
+    const z = (opts: Parameters<typeof result.to3MF>[0]) =>
+      Object.fromEntries(checkMeshes(result.to3MF(opts)).map((m) => [m.name.split(' ')[0], [m.minZ, m.maxZ]]));
+    expect(z({})).toEqual({ text: [2, 3], stroke: [2, 4], background: [0, 2] });
+    // Face-down: the text and stroke are flat on the bed, with the plate printed over them.
+    expect(z({ flip: true })).toEqual({ text: [0, 1], stroke: [0, 2], background: [2, 4] });
+    expect(z({ flip: true, flush: 'back' })).toEqual({ text: [1, 2], stroke: [0, 2], background: [2, 4] });
+  });
+
   it('rejects unknown printers', async () => {
     const result = await render('Hi');
     expect(() => result.to3MF({ printer: 'nope' })).toThrow(TextrudeError);
@@ -226,6 +276,16 @@ describe('3MF output', () => {
 });
 
 describe('meshes', () => {
+  it('places meshes like the 3MF', async () => {
+    const result = await render('Hi', { background: 'gold', textHeight: 1, raised: true });
+    const opts = { flip: true };
+    const reports = checkMeshes(result.to3MF(opts));
+    result.toMeshes(opts).forEach((m, i) => {
+      const zs = m.positions.filter((_, j) => j % 3 === 2);
+      expect([Math.min(...zs), Math.max(...zs)]).toEqual([reports[i]!.minZ, reports[i]!.maxZ]);
+    });
+  });
+
   it('returns one centered mesh per part, matching the 3MF', async () => {
     const result = await render('Hi 😀', { strokeWidth: 1, connect: true, textHeight: 3 });
     const meshes = result.toMeshes();

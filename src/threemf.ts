@@ -15,6 +15,8 @@ export interface MeshPart {
   shape: Shape;
   /** Extrusion height (mm). */
   height: number;
+  /** Where the part's bottom sits (mm). Default 0. */
+  z?: number;
   /** 1-based filament ("extruder") number. */
   filament: number;
 }
@@ -89,10 +91,10 @@ function triangulate(pts: [number, number][], rings: number[][], addPoint: (x: n
 }
 
 /**
- * Extrude a 2D shape (SVG coordinates) into closed triangle meshes from z=0 to z=height,
+ * Extrude a 2D shape (SVG coordinates) into closed triangle meshes from z to z+height,
  * centered on (cx, cy). With `mirror`, X is mirrored so the design reads correctly from below.
  */
-export function extrude(shape: Shape, height: number, cx: number, cy: number, mirror = false): Mesh {
+export function extrude(shape: Shape, height: number, cx: number, cy: number, mirror = false, z = 0): Mesh {
   const verts: Mesh['verts'] = [];
   const tris: Mesh['tris'] = [];
   const sx = mirror ? -1 : 1;
@@ -127,8 +129,8 @@ export function extrude(shape: Shape, height: number, cx: number, cy: number, mi
 
     const n = pts.length;
     const base = verts.length;
-    for (const [x, y] of pts) verts.push([x, y, 0]);
-    for (const [x, y] of pts) verts.push([x, y, height]);
+    for (const [x, y] of pts) verts.push([x, y, z]);
+    for (const [x, y] of pts) verts.push([x, y, z + height]);
     const bot = (k: number) => base + k;
     const top = (k: number) => base + n + k;
 
@@ -197,7 +199,7 @@ export function write3mf(objects: MeshObject[], { name, position, mirror = false
     const [cx, cy] = center(obj.parts.flatMap((p) => p.shape));
     const ids = obj.parts.map((part) => {
       const id = nextId++;
-      const { verts, tris } = extrude(part.shape, part.height, cx, cy, mirror);
+      const { verts, tris } = extrude(part.shape, part.height, cx, cy, mirror, part.z);
       const v = verts.map(([x, y, z]) => `<vertex x="${f(x)}" y="${f(y)}" z="${f(z)}"/>`).join('');
       const t = tris.map(([a, b2, c]) => `<triangle v1="${a}" v2="${b2}" v3="${c}"/>`).join('');
       resources.push(`  <object id="${id}" name="${xmlEsc(part.id)}" type="model"><mesh><vertices>${v}</vertices><triangles>${t}</triangles></mesh></object>`);

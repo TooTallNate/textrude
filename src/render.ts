@@ -91,6 +91,12 @@ export interface TextrudeOptions {
   backgroundPadding?: number;
   /** Corner radius, clamped like CSS border-radius. Default 0. */
   backgroundRadius?: number;
+  /**
+   * Put everything else on top of the background, instead of inset into it: the background is a
+   * solid plate (so its back shows only the background), and the other parts' heights are how
+   * far they stand above it.
+   */
+  raised?: boolean;
 
   // Colors
   /** Filament colors in slot order: every color is mapped to the nearest. */
@@ -128,6 +134,11 @@ export interface Part {
   color: string;
   /** Height (mm). */
   height: number;
+  /**
+   * Where the part's bottom sits (mm), with the design face-up: 0, or the background's height
+   * for parts raised on top of it.
+   */
+  z: number;
   /** 1-based filament slot. */
   filament: number;
   shape: Shape;
@@ -151,8 +162,10 @@ export interface ThreeMfExportOptions {
   bedType?: string;
   /** Bed position of the object's center (mm). Default: the printer's bed center, else 100,100. */
   position?: [number, number];
-  /** Mirror for face-down printing. */
+  /** Print face-down: turn the model over, so its face is on the build plate. */
   flip?: boolean;
+  /** Which side is flat when parts have different heights. See {@link MeshOptions.flush}. */
+  flush?: Flush;
   /** Plate name (and object name, for a single text). Default: the text, without emoji. */
   name?: string;
 }
@@ -178,14 +191,23 @@ export interface TextrudeResult {
   toMeshes(options?: MeshOptions): PartMesh[];
 }
 
+/** The side of the design that's flat: its face (the side you look at) or its back. */
+export type Flush = 'face' | 'back';
+
 export interface MeshOptions {
-  /** Mirror for face-down printing. */
+  /** Print face-down: turn the model over, so its face is on the build plate. */
   flip?: boolean;
+  /**
+   * Which side is flat when parts (that start at the same level) have different heights. With
+   * "back", taller parts stand out from the face (e.g. raised text); with "face", they stick out
+   * of the back instead. Default: the side on the build plate ("face" with `flip`, else "back").
+   */
+  flush?: Flush;
 }
 
 /**
  * A part's closed triangle mesh, in mm: the design is centered on the origin with +Y up (as it
- * reads), extruded from z=0 to the part's height.
+ * reads), extruded upwards from z=0 (the build plate).
  */
 export interface PartMesh {
   part: Part;
@@ -195,14 +217,41 @@ export interface PartMesh {
   indices: Uint32Array;
 }
 
-/** Meshes for parts that share one coordinate space, centered on all of them together. */
-export function partMeshes(parts: Part[], { flip = false }: MeshOptions = {}): PartMesh[] {
-  const b = bbox(parts.flatMap((p) => p.shape));
+/**
+ * Where each part of one object sits as printed: the z of its bottom, from the build plate.
+ *
+ * Parts that start at the same level (inset into the background, or raised on top of it) are
+ * flush on the `flush` side. With `flip`, the object is turned over.
+ */
+export function placeParts(parts: Part[], { flip = false, flush }: MeshOptions = {}): number[] {
+  const side = flush ?? (flip ? 'face' : 'back');
+  if (side !== 'face' && side !== 'back') throw new TextrudeError('flush must be face or back');
+  const levelTop = new Map<number, number>();
+  for (const p of parts) levelTop.set(p.z, Math.max(levelTop.get(p.z) ?? 0, p.z + p.height));
+  const round = (z: number) => Math.round(z * 1e6) / 1e6;
+  const zs = parts.map((p) => (side === 'face' ? round(levelTop.get(p.z)! - p.height) : p.z));
+  if (!flip) return zs;
+  const top = Math.max(...parts.map((p, i) => zs[i]! + p.height));
+  return parts.map((p, i) => round(top - zs[i]! - p.height));
+}
+
+/** Parts in drawing order for flat images: lower parts first, so raised ones cover them. */
+export const paintOrder = (parts: Part[]): Part[] => [...parts].sort((a, b) => a.z - b.z);
+
+/**
+ * Meshes for objects (lists of parts) whose shapes share one coordinate space, centered on all
+ * of them together.
+ */
+export function partMeshes(objects: Part[][], options: MeshOptions = {}): PartMesh[] {
+  const b = bbox(objects.flat().flatMap((p) => p.shape));
   const cx = (b.minX + b.maxX) / 2 / SCALE;
   const cy = (b.minY + b.maxY) / 2 / SCALE;
-  return parts.map((part) => {
-    const { verts, tris } = extrude(part.shape, part.height, cx, cy, flip);
-    return { part, positions: new Float32Array(verts.flat()), indices: new Uint32Array(tris.flat()) };
+  return objects.flatMap((parts) => {
+    const zs = placeParts(parts, options);
+    return parts.map((part, i) => {
+      const { verts, tris } = extrude(part.shape, part.height, cx, cy, options.flip, zs[i]);
+      return { part, positions: new Float32Array(verts.flat()), indices: new Uint32Array(tris.flat()) };
+    });
   });
 }
 
@@ -305,6 +354,9 @@ export async function textrude(input: string, options: TextrudeOptions = {}): Pr
     bridge: options.bridgeHeight ?? baseHeight,
     background: options.backgroundHeight ?? baseHeight,
   };
+  const raised = Boolean(options.raised && backgroundColor);
+  if (options.raised && !backgroundColor) log('note', 'raised only applies with a background, so it is ignored');
+  const zOf = (role: Role) => (raised && role !== 'background' ? heightOf.background : 0);
   const filamentOverride: Partial<Record<Role, number>> = {
     text: options.textFilament,
     stroke: options.strokeFilament,
@@ -385,12 +437,14 @@ export async function textrude(input: string, options: TextrudeOptions = {}): Pr
       b.minX / SCALE - pad, b.minY / SCALE - pad, b.maxX / SCALE + pad, b.maxY / SCALE + pad,
       options.backgroundRadius ?? 0, tolerance,
     );
-    // Share a part with a same-colored stroke/text layer of the same height: carve the plate
-    // around the *other* layers (rather than unioning two edge-adjacent shapes, which can leave
-    // seams).
+    // Inset, it shares a part with a same-colored stroke/text layer of the same height: carve the
+    // plate around the *other* layers (rather than unioning two edge-adjacent shapes, which can
+    // leave seams). Raised, everything else sits on top, so the plate stays solid.
     const sameAs = (l: Layer) => toHex(l.color) === toHex(backgroundColor) && heightOf[l.role] === heightOf.background;
-    const target = layers.find((l) => l.role === 'stroke' && sameAs(l)) ?? layers.find((l) => l.role === 'text' && sameAs(l));
-    if (target) {
+    const target = raised ? undefined : (layers.find((l) => l.role === 'stroke' && sameAs(l)) ?? layers.find((l) => l.role === 'text' && sameAs(l)));
+    if (raised) {
+      layers.push({ role: 'background', color: backgroundColor, shape: plate });
+    } else if (target) {
       const others = layers.filter((l) => l !== target).flatMap((l) => l.shape);
       target.shape = clean(difference(plate, others), minArea);
       target.roles = [target.role, 'background'];
@@ -447,14 +501,15 @@ export async function textrude(input: string, options: TextrudeOptions = {}): Pr
     for (const l of layers) l.color = map.get(toHex(l.color))!;
   }
 
-  // One part per (color, height).
+  // One part per (color, height, level).
   type Draft = Omit<Part, 'shape' | 'filament' | 'id'> & { shapes: Shape[]; filament?: number };
   const drafts: Draft[] = [];
   for (const l of layers) {
     const hex = toHex(l.color);
     const height = heightOf[l.role];
-    let part = drafts.find((p) => p.color === hex && p.height === height);
-    if (!part) drafts.push((part = { color: hex, height, roles: [], shapes: [], filament: l.filament }));
+    const z = zOf(l.role);
+    let part = drafts.find((p) => p.color === hex && p.height === height && p.z === z);
+    if (!part) drafts.push((part = { color: hex, height, z, roles: [], shapes: [], filament: l.filament }));
     for (const role of l.roles ?? [l.role]) {
       if (!part.roles.includes(role)) part.roles.push(role);
       const f = filamentOverride[role];
@@ -475,7 +530,14 @@ export async function textrude(input: string, options: TextrudeOptions = {}): Pr
   });
   if (options.singlePath) {
     const first = parts[0]!;
-    const single = { ...first, id: `textrude ${first.color}`, shape: connected ?? union(...parts.map((p) => p.shape)) };
+    const single = {
+      ...first,
+      id: `textrude ${first.color}`,
+      // Raised parts stand on the plate, so the single part is as tall as the whole stack.
+      height: raised ? Math.max(...parts.map((p) => p.z + p.height)) : first.height,
+      z: 0,
+      shape: connected ?? union(...parts.map((p) => p.shape)),
+    };
     if (autoFilament.has(first)) autoFilament.add(single);
     parts = [single];
   }
@@ -488,10 +550,10 @@ export async function textrude(input: string, options: TextrudeOptions = {}): Pr
     bridged,
     width: (box.maxX - box.minX) / SCALE,
     depth: (box.maxY - box.minY) / SCALE,
-    height: Math.max(...parts.map((p) => p.height)),
+    height: Math.max(...parts.map((p) => p.z + p.height)),
     toSVG({ flip, ...svg } = {}) {
       return writeSvg(
-        parts.map((p) => ({ id: p.id.replace(/[^\w-]+/g, '-'), shape: p.shape, color: p.color })),
+        paintOrder(parts).map((p) => ({ id: p.id.replace(/[^\w-]+/g, '-'), shape: p.shape, color: p.color })),
         { ...svg, mirror: svg.mirror ?? flip },
       );
     },
@@ -499,10 +561,10 @@ export async function textrude(input: string, options: TextrudeOptions = {}): Pr
       return export3mf([{ name: plainName(text), parts }], palette, opts, log, result);
     },
     toPNG(opts = {}) {
-      return renderPng(parts, opts);
+      return renderPng(paintOrder(parts), opts);
     },
     toMeshes(opts = {}) {
-      return partMeshes(parts, opts);
+      return partMeshes([parts], opts);
     },
   };
   resultInfo.set(result, { palette, log });
@@ -555,5 +617,9 @@ export function export3mf(
 
   const position = opts.position ?? profile?.bedCenter ?? [100, 100];
   const name = opts.name ?? (objects.length === 1 ? objects[0]!.name : objects.map((o) => o.name).join(', '));
-  return write3mf(objects, { name, position, mirror: opts.flip, projectConfig });
+  const placed = objects.map((o) => {
+    const zs = placeParts(o.parts, opts);
+    return { name: o.name, parts: o.parts.map((p, i) => ({ ...p, z: zs[i] })) };
+  });
+  return write3mf(placed, { name, position, mirror: opts.flip, projectConfig });
 }

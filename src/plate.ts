@@ -7,7 +7,7 @@ import type { Shape } from './types.js';
 import { writeSvg, type SvgOptions } from './svg.js';
 import { renderPng, type PngOptions } from './raster.js';
 import {
-  autoFilament, export3mf, partMeshes, plainName, resultInfo,
+  autoFilament, export3mf, paintOrder, partMeshes, plainName, resultInfo,
   type LogEvent, type MeshOptions, type Part, type PartMesh, type TextrudeResult, type ThreeMfExportOptions,
 } from './render.js';
 import { TextrudeError } from './errors.js';
@@ -119,11 +119,11 @@ export function arrange(results: TextrudeResult[], options: ArrangeOptions = {})
     parts,
     width,
     depth,
-    height: Math.max(...parts.map((p) => p.height)),
+    height: Math.max(...parts.map((p) => p.z + p.height)),
     toSVG({ flip, ...svg } = {}) {
       return writeSvg(
         objects.flatMap((o, i) =>
-          o.parts.map((p) => ({ id: `${objects.length > 1 ? `t${i + 1}-` : ''}${p.id.replace(/[^\w-]+/g, '-')}`, shape: p.shape, color: p.color })),
+          paintOrder(o.parts).map((p) => ({ id: `${objects.length > 1 ? `t${i + 1}-` : ''}${p.id.replace(/[^\w-]+/g, '-')}`, shape: p.shape, color: p.color })),
         ),
         { ...svg, mirror: svg.mirror ?? flip },
       );
@@ -132,10 +132,10 @@ export function arrange(results: TextrudeResult[], options: ArrangeOptions = {})
       return export3mf(objects, palette, opts, log, plate);
     },
     toPNG(opts = {}) {
-      return renderPng(parts, opts);
+      return renderPng(paintOrder(parts), opts);
     },
     toMeshes(opts = {}) {
-      return partMeshes(parts, opts);
+      return partMeshes(objects.map((o) => o.parts), opts);
     },
   };
   return plate;

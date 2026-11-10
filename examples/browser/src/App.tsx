@@ -153,7 +153,7 @@ export default function App() {
         texts.push({ text: x.text, font, fallbackFonts, options: renderOptions(x, s, style) });
       }
       const bed = s.printer ? PRINTERS[s.printer]?.bedSize : undefined;
-      if (!cancelled) renderer.render({ texts, gap: s.gap, maxWidth: bed?.[0], flip: s.flip });
+      if (!cancelled) renderer.render({ texts, gap: s.gap, maxWidth: bed?.[0], flip: s.flip, flush: s.flush ?? undefined });
     }, 60);
     return () => {
       cancelled = true;
@@ -279,7 +279,7 @@ export default function App() {
     if (!model) return;
     setExporting(format);
     try {
-      const data = await renderer.export(format, { printer: settings.printer, flip: settings.flip });
+      const data = await renderer.export(format, { printer: settings.printer, flip: settings.flip, flush: settings.flush ?? undefined });
       const type = format === '3mf' ? 'model/3mf' : format === 'svg' ? 'image/svg+xml' : 'image/png';
       download(data, `${fileName(model.texts)}.${format}`, type);
     } catch (err) {
@@ -591,6 +591,9 @@ export default function App() {
                 <Row label="Corner radius" hint="Like CSS border-radius: a huge radius makes a pill">
                   <Slider value={t.backgroundRadius} onChange={(v) => setT('backgroundRadius', v)} min={0} max={50} step={0.5} unit="mm" />
                 </Row>
+                <Row label="Raised on plate" hint="Put the text and outline on top of a solid plate, instead of inset into it, so the back shows only the plate">
+                  <Switch checked={t.raised} onChange={(v) => setT('raised', v)} label="Raised on plate" />
+                </Row>
               </>
             )}
             {!t.background && (
@@ -630,7 +633,7 @@ export default function App() {
             <Row label="Height">
               <Slider value={t.height} onChange={(v) => setT('height', v)} min={0.2} max={10} step={0.1} unit="mm" />
             </Row>
-            <Row label="Text height" hint="Make the letters taller (raised) or shorter than the rest">
+            <Row label="Text height" hint={t.background && t.raised ? 'How far the letters stand above the plate' : 'Make the letters taller (raised) or shorter than the rest'}>
               <NumberInput value={t.textHeight} onChange={(v) => setT('textHeight', v)} min={0.1} nullable placeholder={String(t.height)} unit="mm" />
             </Row>
             {t.strokeWidth > 0 && (
@@ -672,8 +675,15 @@ export default function App() {
                 ))}
               </Select>
             </Row>
-            <Row label="Print face-down" hint="Mirrors the model, so the visible side is the smooth side that touched the bed">
+            <Row label="Print face-down" hint="Turns the model over, so the visible side is the smooth side that touched the bed">
               <Switch checked={s.flip} onChange={(v) => set('flip', v)} label="Print face-down" />
+            </Row>
+            <Row label="Flat side" hint="Which side stays flat when parts have different heights: on the face, taller parts stick out of the back">
+              <Select value={s.flush ?? ''} onChange={(v) => set('flush', v === 'face' || v === 'back' ? v : null)} className="w-36">
+                <option value="">Bed side ({s.flip ? 'face' : 'back'})</option>
+                <option value="face">Face</option>
+                <option value="back">Back</option>
+              </Select>
             </Row>
             {s.texts.length > 1 && (
               <Row label="Gap between texts" hint="Each text is a separate object; rows wrap at the bed's width (200 mm without a printer)">

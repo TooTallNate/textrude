@@ -36,6 +36,8 @@ export interface TextSettings {
   backgroundColor: string;
   backgroundPadding: number | null;
   backgroundRadius: number;
+  /** Text and outline on top of the plate, instead of inset into it. */
+  raised: boolean;
 
   height: number;
   textHeight: number | null;
@@ -51,6 +53,8 @@ export interface Settings {
   maxColors: number | null;
   printer: string;
   flip: boolean;
+  /** The side that stays flat (null: the side on the bed). */
+  flush: 'face' | 'back' | null;
   /** Space between texts on the plate (mm). */
   gap: number;
 }
@@ -87,6 +91,7 @@ export const DEFAULT_TEXT: TextSettings = {
   backgroundColor: '#1e3a8a',
   backgroundPadding: null,
   backgroundRadius: 3,
+  raised: false,
 
   height: 2,
   textHeight: null,
@@ -101,6 +106,7 @@ export const DEFAULTS: Settings = {
   maxColors: null,
   printer: '',
   flip: false,
+  flush: null,
   gap: 5,
 };
 
@@ -128,6 +134,7 @@ export function renderOptions(t: TextSettings, s: Settings, style: { bold: boole
     background: t.background ? t.backgroundColor : undefined,
     backgroundPadding: t.backgroundPadding ?? undefined,
     backgroundRadius: t.backgroundRadius,
+    raised: t.background && t.raised,
     height: t.height,
     textHeight: t.textHeight ?? undefined,
     strokeHeight: t.strokeHeight ?? undefined,
@@ -205,6 +212,7 @@ function textConfig(t: TextSettings, ctx: FontContext): Config {
     o.background = t.backgroundColor;
     if (t.backgroundPadding != null) o.backgroundPadding = t.backgroundPadding;
     if (t.backgroundRadius !== CLI_DEFAULTS.backgroundRadius) o.backgroundRadius = t.backgroundRadius;
+    if (t.raised) o.raised = true;
   } else if (t.connect) {
     o.connect = true;
     if (t.bridgeWidth != null) o.bridgeWidth = t.bridgeWidth;
@@ -236,6 +244,7 @@ export function toConfig(s: Settings, ctx: FontContext): Config {
   else if (s.maxColors != null) shared.maxColors = s.maxColors;
   if (s.printer) shared.printer = s.printer;
   if (s.flip) shared.flip = true;
+  if (s.flush) shared.flush = s.flush;
   if (s.texts.length > 1 && s.gap !== CLI_DEFAULTS.gap) shared.gap = s.gap;
 
   if (s.texts.length === 1) return { text: s.texts[0]!.text, ...shared };
@@ -252,11 +261,11 @@ const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 const TEXT_KEYS = new Set([
   'text', 'font', 'bold', 'italic', 'underline', 'strikethrough', 'size', 'color', 'letterColors', 'align', 'lineSpacing',
   'letterSpacing', 'strokeWidth', 'strokeColor', 'strokeAlign', 'strokeJoin', 'connect', 'bridgeWidth', 'bridgeColor', 'background',
-  'backgroundPadding', 'backgroundRadius', 'height', 'textHeight', 'strokeHeight', 'backgroundHeight',
+  'backgroundPadding', 'backgroundRadius', 'raised', 'height', 'textHeight', 'strokeHeight', 'backgroundHeight',
   // Read from the top level, but the CLI also allows them per text.
   'fallbackFont', 'maxColors',
 ]);
-const PLATE_KEYS = new Set(['palette', 'printer', 'flip', 'gap', 'fallbackFont', 'maxColors']);
+const PLATE_KEYS = new Set(['palette', 'printer', 'flip', 'flush', 'gap', 'fallbackFont', 'maxColors']);
 /** CLI options about where and how output is written, which don't apply here. */
 const CLI_ONLY_KEYS = new Set(['output', 'format', 'preview', 'previewPng', 'quiet', 'config', 'listFonts', 'version', 'help']);
 
@@ -342,6 +351,7 @@ export function fromConfig(raw: unknown, ctx: FontContext): { settings: Settings
         case 'underline':
         case 'strikethrough':
         case 'connect':
+        case 'raised':
           t[key] = bool(v) || (key === 'italic' && t.italic);
           break;
         case 'size':
@@ -430,6 +440,7 @@ export function fromConfig(raw: unknown, ctx: FontContext): { settings: Settings
   if (shared.palette !== undefined) settings.palette = colors('palette', shared.palette) ?? null;
   if (shared.maxColors !== undefined) settings.maxColors = num('maxColors', shared.maxColors, 1) ?? null;
   if (shared.flip !== undefined) settings.flip = bool(shared.flip);
+  if (shared.flush !== undefined) settings.flush = choice('flush', shared.flush, ['face', 'back'] as const) ?? null;
   if (shared.gap !== undefined) settings.gap = num('gap', shared.gap, 0) ?? DEFAULTS.gap;
   if (shared.printer !== undefined) {
     if (PRINTERS[String(shared.printer)]) settings.printer = String(shared.printer);

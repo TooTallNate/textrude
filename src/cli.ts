@@ -76,6 +76,9 @@ Background
       --background-padding <n>  Space around the design in mm        [25% of size]
       --background-radius <n>   Corner radius in mm (like CSS: a huge radius makes
                              a pill, or a circle for a square)         [0]
+      --raised               Put the text (and stroke) on top of the plate instead of
+                             inset into it, so the back shows only the plate. Their
+                             heights are then how far they stand above it
 
 Colors & filaments
       --palette <list>       Your filament colors, in slot order, e.g.
@@ -90,8 +93,13 @@ Output
                              implies --format 3mf
       --format <f>           svg | 3mf                    [from extension, else svg]
       --single-path          Merge everything into one region (single-material)
-      --flip                 Mirror the design so it prints face-down: the text side
+      --flip                 Turn the model over so it prints face-down: the text side
                              sits on the build plate for the smoothest finish
+      --flush <side>         face | back: the side that's flat when parts have
+                             different heights. With back, taller parts stand out of
+                             the face (e.g. a shorter background sits behind the
+                             text); with face, they stick out of the back
+                                                  [the side on the bed: face with --flip]
       --tolerance <n>        Max curve flattening error              [0.01]
       --config <file>        Read options from a JSON file (CLI flags override it)
       --no-preview           Don't show an image preview in the terminal
@@ -179,6 +187,7 @@ const OPTIONS = {
   'background-radius': { type: 'string' },
   'background-height': { type: 'string' },
   'background-filament': { type: 'string' },
+  raised: { type: 'boolean' },
   palette: { type: 'string' },
   'max-colors': { type: 'string' },
   'bitmap-colors': { type: 'string' },
@@ -186,6 +195,7 @@ const OPTIONS = {
   format: { type: 'string' },
   'single-path': { type: 'boolean' },
   flip: { type: 'boolean' },
+  flush: { type: 'string' },
   tolerance: { type: 'string' },
   precision: { type: 'string' },
   config: { type: 'string' },
@@ -237,7 +247,7 @@ async function readAll(stream: NodeJS.ReadableStream): Promise<string> {
 
 /** Options for the whole output, which can't differ per text. */
 const SHARED_ONLY = new Set<string>([
-  'list-fonts', 'palette', 'output', 'format', 'flip', 'config', 'margin', 'units', 'precision', 'position', 'gap',
+  'list-fonts', 'palette', 'output', 'format', 'flip', 'flush', 'config', 'margin', 'units', 'precision', 'position', 'gap',
   'printer', 'printer-preset', 'process-preset', 'filament-preset', 'bed-type', 'preview', 'preview-png', 'quiet', 'version', 'help',
 ]);
 
@@ -404,6 +414,7 @@ function renderOptions(v: Values): TextrudeOptions {
     background: str('background'),
     backgroundPadding: num('background-padding'),
     backgroundRadius: num('background-radius'),
+    raised: Boolean(v.raised),
     palette: csv('palette'),
     maxColors: num('max-colors'),
     bitmapColors: num('bitmap-colors'),
@@ -440,7 +451,7 @@ async function main(argv: string[], io: RunOptions): Promise<number> {
   const write = io.stdout ?? ((d: string | Uint8Array) => process.stdout.write(d));
   const { values: v, positionals, text: configText, jobs: textJobs } = parse(argv);
   setQuiet(Boolean(v.quiet));
-  const { str, num } = reader(v);
+  const { str, num, choice } = reader(v);
 
   if (v.help) {
     write(HELP);
@@ -521,6 +532,7 @@ async function main(argv: string[], io: RunOptions): Promise<number> {
       bedType: str('bed-type'),
       position,
       flip: Boolean(v.flip),
+      flush: choice('flush', ['face', 'back'] as const),
     };
     data = plate.to3MF(exportOptions);
     if (printer) ui.detail('printer', typeof printer === 'string' ? PRINTERS[printer]!.label : printer.label);
@@ -555,7 +567,7 @@ async function main(argv: string[], io: RunOptions): Promise<number> {
     for (const p of obj.parts) {
       const slot = format === '3mf' ? ui.chalk.bold(String(p.filament).padStart(2)) + '  ' : '';
       const vol = format === '3mf' ? ui.chalk.dim(`${(Math.abs(area(p.shape)) * p.height).toFixed(0)} mm³`.padStart(10)) : '';
-      const h = format === '3mf' ? `${p.height} mm`.padStart(7) : '';
+      const h = format === '3mf' ? `${p.z ? `${p.z}–${+(p.z + p.height).toFixed(6)}` : p.height} mm`.padStart(9) : '';
       ui.raw(`    ${indent}${ui.swatch(p.color)}  ${slot}${p.color}  ${p.roles.join(' + ').padEnd(roleWidth)}${h}${vol}`);
     }
   }

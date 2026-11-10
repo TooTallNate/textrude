@@ -72,7 +72,7 @@ ctx.onmessage = async (e: MessageEvent<WorkerRequest>) => {
         }
       }
       const plate = arrange(results, { gap: msg.gap, maxWidth: msg.maxWidth, onLog });
-      const meshes = plate.toMeshes({ flip: msg.flip });
+      const meshes = plate.toMeshes({ flip: msg.flip, flush: msg.flush });
       last = plate;
       const model: Model = {
         id: msg.id,
@@ -99,10 +99,10 @@ ctx.onmessage = async (e: MessageEvent<WorkerRequest>) => {
     try {
       if (!last) throw new Error('nothing to export yet');
       const logs: LogEvent[] = (sink = []);
-      const { printer, flip } = msg.options;
+      const { printer, flip, flush } = msg.options;
       const data =
         msg.format === '3mf'
-          ? last.to3MF({ printer: printer || undefined, flip })
+          ? last.to3MF({ printer: printer || undefined, flip, flush })
           : msg.format === 'svg'
             ? last.toSVG({ flip })
             : last.toPNG({ mirror: flip, maxWidth: 2048, maxHeight: 2048 });

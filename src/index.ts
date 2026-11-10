@@ -11,7 +11,7 @@
  */
 export { textrude, plainName } from './render.js';
 export type {
-  TextrudeOptions, TextrudeResult, Part, Role, UsedFont, LogEvent, LogLevel, ThreeMfExportOptions, MeshOptions, PartMesh,
+  TextrudeOptions, TextrudeResult, Part, Role, UsedFont, LogEvent, LogLevel, ThreeMfExportOptions, MeshOptions, PartMesh, Flush,
 } from './render.js';
 export { arrange } from './plate.js';
 export type { ArrangeOptions, Plate, PlateObject } from './plate.js';

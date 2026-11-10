@@ -47,8 +47,9 @@ The Snapmaker U1 has 4 toolheads. textrude warns if a design needs more, and `--
   - `--background-padding` sets the space around the design.
   - With a background, the stroke defaults to the background color, so it blends into the plate as one part.
   - Pass `--stroke-color` for a separately colored outline.
+  - `--raised` puts the text (and outline) on top of the plate instead of inset into it, so the back of the print shows only the plate. `--text-height` and `--stroke-height` are then how far they stand above it.
 - **Bold, italic, underline, strikethrough.** Real font faces or variable-font axes are used when available, and synthesized otherwise.
-- **`--flip`** to print face-down, so the visible side is the smooth surface that touched the build plate.
+- **`--flip`** to print face-down, so the visible side is the smooth surface that touched the build plate. `--flush` picks which side stays flat when parts have different heights (see [Heights](#heights)).
 - **Multiple texts** (`-t Alice -t Bob`) become separate objects on one plate, spaced apart so they print separately.
 - **Config files** (`--config sign.json`) to save a design and re-run it.
 - **Terminal preview**: shows an image of the result, plus a table of parts with their filament, color, height, and volume.
@@ -123,7 +124,7 @@ Passing the same `Uint8Array` again reuses the parsed font. [`examples/browser`]
 
 ## Examples
 
-These images are SVG renders of each example (`--format svg`), shown on a gray backdrop. The 3MF versions have the same parts, extruded. `--flip` and part heights don't show in a flat image.
+These images are SVG renders of each example (`--format svg`), shown on a gray backdrop. The 3MF versions have the same parts, extruded. `--flip`, `--raised`, and part heights don't show in a flat image.
 
 The emoji fonts are [Twemoji Mozilla](https://github.com/mozilla/twemoji-colr) and [OpenMoji](https://github.com/hfg-gmuend/openmoji). `pnpm run examples` downloads them into `./fonts`, then re-renders every image and updates this section.
 
@@ -265,7 +266,7 @@ textrude -f "Arial Black" -w 1.5 --connect \
 ```
 
 - Options before the first `-t` apply to every text. Options after a `-t` apply only to that text, and override the shared ones.
-- Options for the whole file can go anywhere: `-o`, `--printer`, `--palette`, `--flip`, `--position`, and so on.
+- Options for the whole file can go anywhere: `-o`, `--printer`, `--palette`, `--flip`, `--flush`, `--position`, and so on.
 - The objects are laid out left to right, `--gap` mm apart (default 5). A new row starts when a row would get wider than the printer's bed (200 mm without a printer profile).
 - A color uses the same filament slot in every object.
 - `-t -` reads that text from stdin.
@@ -302,6 +303,29 @@ For several texts, use a `texts` array instead of `text`. Each entry is a string
 }
 ```
 
+## Heights
+
+Every part is `--height` tall (default 2 mm), unless `--text-height`, `--stroke-height`, `--bridge-height`, or `--background-height` say otherwise. How parts of different heights fit together depends on three options:
+
+- **`--raised`** (with `--background`): the text and outline sit on top of a solid plate, instead of being inset into it. The back of the print shows only the plate.
+- **`--flip`** turns the model over, so its face prints on the build plate.
+- **`--flush face|back`** is the side that stays flat. With `back`, taller parts stand out of the face; with `face`, they stick out of the back. It defaults to the side on the build plate: `back`, or `face` with `--flip`.
+
+For example, with 3 mm text on a 2 mm plate:
+
+| Options | Text | Plate | Result |
+| --- | --- | --- | --- |
+| (none) | 0–3 mm | 0–2 mm | The text stands 1 mm out of the face. |
+| `--flip` | 0–3 mm | 0–2 mm | The face is flat on the bed; the text sticks 1 mm out of the back. |
+| `--flip --flush back` | 0–3 mm | 1–3 mm | The text stands out of the face, printed face-down. The plate starts 1 mm up, so it needs supports. |
+
+And with `--raised --text-height 1` on a 2 mm plate:
+
+| Options | Text | Plate | Result |
+| --- | --- | --- | --- |
+| `--raised` | 2–3 mm | 0–2 mm | The text sits on the plate. |
+| `--raised --flip` | 0–1 mm | 1–3 mm | The text prints first, flat on the bed, and the plate is printed over it. The plate bridges the gaps between letters. |
+
 ## Notes
 
 - Sizes are in mm. `--size` is the font's em size.
@@ -319,7 +343,6 @@ For several texts, use a `texts` array instead of `text`. Each entry is a string
 
   `--synthetic` forces the synthetic version, and `--embolden` and `--slant` set the amounts directly.
 - If the bridges are the same color as the stroke (the default), they are merged into the stroke part.
-- With `--flip`, all parts start flat on the bed, so different heights only change the back of the print.
 - The object (or the group of objects, for multiple texts) is centered at `--position`. By default that's the printer's bed center, or `100,100` without a printer profile. Press **A** (Arrange) in the slicer to re-center it.
 - **Bitmap fonts** (BMFont) are converted to an outline font with [`@tootallnate/bitmap-font`](https://github.com/TooTallNate/switch-tools/tree/main/packages/bitmap-font). Only the glyph shapes are used, not their colors. A glyph's detail is limited by its pixels, so use the largest size the font comes in.
 - Not supported yet: COLRv1 fonts (gradients) and SVG-in-OpenType fonts.
