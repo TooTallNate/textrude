@@ -23,6 +23,7 @@ The Snapmaker U1 has 4 toolheads. textrude warns if a design needs more, and `--
 ## Features
 
 - **Any font**: installed font names, font files (TTF, OTF, TTC, WOFF, WOFF2), or URLs. Names are looked up in a local `./fonts` folder first.
+- **Bitmap fonts** in [BMFont](https://www.angelcode.com/products/bmfont/) format, the common format for game and pixel fonts: pass the `.fnt` (its page images are read from beside it) or a `.zip` of the `.fnt` and its pages. Glyphs are traced into outlines: smooth curves for large anti-aliased glyphs, exact pixel squares for small or 1-bit ones.
 - **Color emoji** become separate filament colors:
   - COLR vector fonts (Twemoji, OpenMoji) keep their exact colors.
   - Bitmap fonts (Apple Color Emoji, Noto Color Emoji, Blobmoji) are reduced to a few colors and traced into shapes.
@@ -320,6 +321,7 @@ For several texts, use a `texts` array instead of `text`. Each entry is a string
 - If the bridges are the same color as the stroke (the default), they are merged into the stroke part.
 - With `--flip`, all parts start flat on the bed, so different heights only change the back of the print.
 - The object (or the group of objects, for multiple texts) is centered at `--position`. By default that's the printer's bed center, or `100,100` without a printer profile. Press **A** (Arrange) in the slicer to re-center it.
+- **Bitmap fonts** (BMFont) are converted to an outline font with [`@tootallnate/bitmap-font`](https://github.com/TooTallNate/switch-tools/tree/main/packages/bitmap-font). Only the glyph shapes are used, not their colors. A glyph's detail is limited by its pixels, so use the largest size the font comes in.
 - Not supported yet: COLRv1 fonts (gradients) and SVG-in-OpenType fonts.
 
 ## Development

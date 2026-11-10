@@ -69,6 +69,10 @@ export function readFile(file: string): Uint8Array {
   return node.fs.readFileSync(file);
 }
 
+/** `rel` resolved against the directory of `file`. */
+export const sibling = (file: string, rel: string): string =>
+  node ? node.path.resolve(node.path.dirname(file), rel) : `${dirname(file)}/${rel}`;
+
 export const dirname = (file: string): string => (node ? node.path.dirname(file) : file.replace(/[\\/][^\\/]*$/, ''));
 
 /** A file's name without directory or extension. */

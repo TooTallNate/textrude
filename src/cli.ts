@@ -26,7 +26,9 @@ Multiple texts
 
 Font
   -f, --font <name|path|url> Font name, file (ttf/otf/ttc/woff/woff2), or URL  [Arial]
-                             Names are looked up in ./fonts, then installed fonts
+                             Names are looked up in ./fonts, then installed fonts.
+                             Bitmap fonts: a BMFont .fnt (pages read from beside
+                             it) or a .zip of the .fnt and its pages
       --font-index <n>       Face index inside a .ttc/.otc collection
       --fallback-font <f>    Font for characters the main font lacks (repeatable).
                              Emoji fall back to an installed color emoji font

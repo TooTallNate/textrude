@@ -1,3 +1,6 @@
 packages:
   - .
   - examples/browser
+minimumReleaseAgeExclude:
+  - '@tootallnate/bitmap-font@0.1.0'
+  - '@tootallnate/bmfont@0.1.0'

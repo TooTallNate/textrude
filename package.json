@@ -55,6 +55,7 @@
     "release": "pnpm run build && changeset publish"
   },
   "dependencies": {
+    "@tootallnate/bitmap-font": "^0.1.0",
     "chalk": "^6.0.1",
     "clipper-lib": "^6.4.2",
     "fflate": "^0.8.3",

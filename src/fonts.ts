@@ -2,9 +2,56 @@
  * Font loading (files, URLs, bytes, installed names), fontkit workarounds, and bold/italic
  * resolution.
  */
+import { bitmapFontToTtf, isBmfont, isZip, parseBmfont, readBmfontFiles, readBmfontZip } from '@tootallnate/bitmap-font';
 import { createFont, openFaces, type Font, type Glyph } from './fontkit.js';
-import { basename, dirname, findFile, fontDirs, fontFiles, readFile } from './system.js';
+import { basename, dirname, findFile, fontDirs, fontFiles, readFile, sibling } from './system.js';
 import { TextrudeError } from './errors.js';
+
+// ----- Bitmap fonts -----
+//
+// AngelCode BMFont (a .fnt descriptor plus PNG/TGA page images) is the common bitmap font format.
+// Its glyphs are traced into outlines and the result is a TrueType font in memory, so layout,
+// kerning and everything downstream treat it like any other font.
+
+const bmfontError = (err: unknown) => new TextrudeError(`could not read bitmap font: ${(err as Error).message}`);
+
+/** Font file bytes, with a zipped BMFont converted to TrueType. */
+function fontBytes(data: Uint8Array): Uint8Array {
+  if (isZip(data)) {
+    try {
+      return bitmapFontToTtf(readBmfontZip(data));
+    } catch (err) {
+      const e = bmfontError(err);
+      if (/page/.test(e.message)) e.message += ' (the .fnt and its page images go together)';
+      throw e;
+    }
+  }
+  if (isBmfont(data)) {
+    throw new TextrudeError('a BMFont .fnt needs its page images: pass the .fnt file path or URL, or a .zip of the .fnt and its pages');
+  }
+  return data;
+}
+
+/** A BMFont descriptor plus its pages, fetched by `readPage` (page names are relative to the .fnt), as TrueType. */
+async function bmfontToTtf(descriptor: Uint8Array, name: string, readPage: (page: string) => Uint8Array | Promise<Uint8Array>): Promise<Uint8Array> {
+  try {
+    const files = new Map([[name, descriptor]]);
+    for (const page of parseBmfont(descriptor).pages) files.set(page, await readPage(page));
+    return bitmapFontToTtf(readBmfontFiles(files, name));
+  } catch (err) {
+    throw err instanceof TextrudeError ? err : bmfontError(err);
+  }
+}
+
+/** A font file's bytes (TrueType for bitmap fonts), reading BMFont pages from beside it. */
+async function readFontFile(file: string, data = readFile(file)): Promise<Uint8Array> {
+  if (!isBmfont(data)) return fontBytes(data);
+  return bmfontToTtf(data, basename(file), (page) => {
+    const p = findFile(sibling(file, page));
+    if (!p) throw new TextrudeError(`BMFont page "${page}" not found next to ${file}`);
+    return readFile(p);
+  });
+}
 
 const norm = (s: string | null | undefined) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
@@ -172,8 +219,9 @@ function fromBytes(data: Uint8Array | ArrayBuffer, index = 0): Font {
   let font = byIndex.get(index);
   if (!font) {
     try {
-      font = prepareFont(createFont(data instanceof Uint8Array ? data : new Uint8Array(data), index));
+      font = prepareFont(createFont(fontBytes(data instanceof Uint8Array ? data : new Uint8Array(data)), index));
     } catch (err) {
+      if (err instanceof TextrudeError) throw err;
       throw new TextrudeError(`could not read font: ${(err as Error).message}`);
     }
     byIndex.set(index, font);
@@ -181,19 +229,33 @@ function fromBytes(data: Uint8Array | ArrayBuffer, index = 0): Font {
   return font;
 }
 
+async function download(url: string, what = 'font'): Promise<Uint8Array> {
+  const res = await fetch(url);
+  if (!res.ok) throw new TextrudeError(`could not download ${what} (${res.status} ${res.statusText}): ${url}`);
+  return new Uint8Array(await res.arrayBuffer());
+}
+
 /**
  * Load a font from bytes, a URL, a file path, or an installed font name (installed fonts include
- * a ./fonts directory in the working directory).
+ * a ./fonts directory in the working directory). Bitmap fonts in BMFont format load as a .fnt
+ * path or URL (its pages are read from beside it) or as a .zip of the .fnt and its pages.
  */
 export async function loadFont(spec: FontSource, index?: number): Promise<LoadedFont> {
   if (typeof spec !== 'string') return { font: fromBytes(spec, index), file: null };
   if (/^(https?|blob|data):/i.test(spec)) {
-    const res = await fetch(spec);
-    if (!res.ok) throw new TextrudeError(`could not download font (${res.status} ${res.statusText}): ${spec}`);
-    return { font: prepareFont(createFont(new Uint8Array(await res.arrayBuffer()), index)), file: null };
+    let data = await download(spec);
+    if (isBmfont(data)) {
+      const name = decodeURIComponent(new URL(spec).pathname.split('/').pop() || 'font.fnt');
+      data = await bmfontToTtf(data, name, (page) => download(new URL(page, spec).href, 'BMFont page'));
+    }
+    return { font: fromBytes(data, index), file: null };
   }
   const p = findFile(spec);
-  if (p) return { font: openPrepared(p, index), file: p };
+  if (p) {
+    const data = readFile(p);
+    if (isBmfont(data) || isZip(data)) return { font: prepareFont(createFont(await readFontFile(p, data), index)), file: p };
+    return { font: openPrepared(p, index), file: p };
+  }
 
   const target = norm(spec);
   let fallback: FontEntry | null = null;
