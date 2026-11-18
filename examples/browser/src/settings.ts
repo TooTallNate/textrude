@@ -31,6 +31,7 @@ export interface TextSettings {
   bridgeWidth: number | null;
   /** Null: the outline's color, or the text's without an outline. */
   bridgeColor: string | null;
+  bridgePlacement: 'auto' | 'top' | 'middle' | 'bottom';
 
   background: boolean;
   backgroundColor: string;
@@ -86,6 +87,7 @@ export const DEFAULT_TEXT: TextSettings = {
   connect: true,
   bridgeWidth: null,
   bridgeColor: null,
+  bridgePlacement: 'auto',
 
   background: false,
   backgroundColor: '#1e3a8a',
@@ -131,6 +133,7 @@ export function renderOptions(t: TextSettings, s: Settings, style: { bold: boole
     connect: t.connect && !t.background,
     bridgeWidth: t.bridgeWidth ?? undefined,
     bridgeColor: t.bridgeColor ?? undefined,
+    bridgePlacement: t.bridgePlacement,
     background: t.background ? t.backgroundColor : undefined,
     backgroundPadding: t.backgroundPadding ?? undefined,
     backgroundRadius: t.backgroundRadius,
@@ -167,6 +170,7 @@ const CLI_DEFAULTS = {
   strokeColor: '#ffffff',
   strokeAlign: 'outside',
   strokeJoin: 'round',
+  bridgePlacement: 'auto',
   backgroundRadius: 0,
   height: 2,
   gap: 5,
@@ -217,6 +221,7 @@ function textConfig(t: TextSettings, ctx: FontContext): Config {
     o.connect = true;
     if (t.bridgeWidth != null) o.bridgeWidth = t.bridgeWidth;
     if (t.bridgeColor != null) o.bridgeColor = t.bridgeColor;
+    if (t.bridgePlacement !== CLI_DEFAULTS.bridgePlacement) o.bridgePlacement = t.bridgePlacement;
   }
   if (t.height !== CLI_DEFAULTS.height) o.height = t.height;
   if (t.textHeight != null) o.textHeight = t.textHeight;
@@ -260,7 +265,7 @@ const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 /** Options this app understands (anything else in a config file is reported and ignored). */
 const TEXT_KEYS = new Set([
   'text', 'font', 'bold', 'italic', 'underline', 'strikethrough', 'size', 'color', 'letterColors', 'align', 'lineSpacing',
-  'letterSpacing', 'strokeWidth', 'strokeColor', 'strokeAlign', 'strokeJoin', 'connect', 'bridgeWidth', 'bridgeColor', 'background',
+  'letterSpacing', 'strokeWidth', 'strokeColor', 'strokeAlign', 'strokeJoin', 'connect', 'bridgeWidth', 'bridgeColor', 'bridgePlacement', 'background',
   'backgroundPadding', 'backgroundRadius', 'raised', 'height', 'textHeight', 'strokeHeight', 'backgroundHeight',
   // Read from the top level, but the CLI also allows them per text.
   'fallbackFont', 'maxColors',
@@ -411,6 +416,9 @@ export function fromConfig(raw: unknown, ctx: FontContext): { settings: Settings
           break;
         case 'strokeJoin':
           t.strokeJoin = choice(key, v, ['round', 'miter', 'square'] as const) ?? t.strokeJoin;
+          break;
+        case 'bridgePlacement':
+          t.bridgePlacement = choice(key, v, ['auto', 'top', 'middle', 'bottom'] as const) ?? t.bridgePlacement;
           break;
       }
     }

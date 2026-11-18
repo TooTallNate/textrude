@@ -67,4 +67,35 @@ describe('makeBridges', () => {
     expect(b.minY).toBeGreaterThanOrEqual(0);
     expect(b.maxY).toBeLessThanOrEqual(5 * SCALE);
   });
+
+  describe('placement', () => {
+    // A tall piece and a short one beside it, sharing y 2..10 (Y grows downward).
+    const pieces = union(rect(0, 0, 5, 10), rect(8, 2, 13, 10));
+    const bar = (placement: 'top' | 'middle' | 'bottom') => {
+      const { bridges, count } = makeBridges(pieces, 1, 0.01, placement);
+      expect(count).toBe(1);
+      expect(components(union(pieces, bridges))).toHaveLength(1);
+      const b = bbox(difference(bridges, pieces));
+      return { top: b.minY / SCALE, bottom: b.maxY / SCALE };
+    };
+
+    it('puts the bar at the top of the shared height', () => {
+      expect(bar('top').top).toBeCloseTo(2, 3);
+    });
+
+    it('puts the bar in the middle of the shared height', () => {
+      const { top, bottom } = bar('middle');
+      expect((top + bottom) / 2).toBeCloseTo(6, 3);
+    });
+
+    it('puts the bar at the bottom of the shared height', () => {
+      expect(bar('bottom').bottom).toBeCloseTo(10, 3);
+    });
+
+    it('bridges the shortest gap between pieces stacked vertically', () => {
+      const stacked = union(rect(0, 0, 5, 5), rect(0, 8, 5, 13));
+      const { bridges } = makeBridges(stacked, 1, 0.01, 'top');
+      expect(components(union(stacked, bridges))).toHaveLength(1);
+    });
+  });
 });

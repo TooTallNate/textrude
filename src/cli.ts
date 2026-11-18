@@ -69,6 +69,9 @@ Connecting
       --connect              Bridge disconnected islands into one piece
       --bridge-width <n>     Bridge thickness   [stroke width, or 10% of size]
       --bridge-color <css>   Bridge color       [stroke color, or text color]
+      --bridge-placement <p> auto | top | middle | bottom: where bridges join pieces
+                             side by side. auto takes the shortest gap; the others
+                             put the bridge at that height of the pieces  [auto]
 
 Background
       --background <css>     Solid plate behind the whole design, in this color. It
@@ -182,6 +185,7 @@ const OPTIONS = {
   connect: { type: 'boolean' },
   'bridge-width': { type: 'string' },
   'bridge-color': { type: 'string' },
+  'bridge-placement': { type: 'string' },
   background: { type: 'string' },
   'background-padding': { type: 'string' },
   'background-radius': { type: 'string' },
@@ -411,6 +415,7 @@ function renderOptions(v: Values): TextrudeOptions {
     connect: Boolean(v.connect),
     bridgeWidth: num('bridge-width'),
     bridgeColor: str('bridge-color'),
+    bridgePlacement: choice('bridge-placement', ['auto', 'top', 'middle', 'bottom'] as const),
     background: str('background'),
     backgroundPadding: num('background-padding'),
     backgroundRadius: num('background-radius'),

@@ -42,6 +42,7 @@ The Snapmaker U1 has 4 toolheads. textrude warns if a design needs more, and `--
   - `--letter-colors` cycles colors per letter.
 - **Stroke/outline**, built as real geometry, so the color regions never overlap.
 - **`--connect`** bridges separate pieces (letters, the dot on an i, ...) so the print comes out as one piece.
+  - `--bridge-placement top|middle|bottom` puts the bridges between letters at that height, instead of across the shortest gap (`auto`, the default).
 - **`--background`** puts a solid plate behind the design instead, which also holds everything together.
   - `--background-radius` rounds the corners. Like CSS `border-radius`, a huge radius gives a pill shape.
   - `--background-padding` sets the space around the design.

@@ -614,6 +614,20 @@ export default function App() {
               </Row>
             )}
             {!t.background && t.connect && (
+              <Row label="Bridge placement" hint="Where bridges join letters side by side: the shortest gap, or the top, middle, or bottom of the letters">
+                <Segmented
+                  value={t.bridgePlacement}
+                  onChange={(v) => setT('bridgePlacement', v)}
+                  options={[
+                    { value: 'auto', label: 'Auto' },
+                    { value: 'top', label: 'Top' },
+                    { value: 'middle', label: 'Middle' },
+                    { value: 'bottom', label: 'Bottom' },
+                  ]}
+                />
+              </Row>
+            )}
+            {!t.background && t.connect && (
               <Row label={t.strokeWidth > 0 ? 'Bridges match outline' : 'Bridges match text'}>
                 <Switch
                   checked={t.bridgeColor == null}

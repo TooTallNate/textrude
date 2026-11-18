@@ -27,3 +27,4 @@ export { TextrudeError } from './errors.js';
 export type { SvgOptions } from './svg.js';
 export type { PngOptions } from './raster.js';
 export type { Shape, Path, Point } from './types.js';
+export type { BridgePlacement } from './geometry.js';

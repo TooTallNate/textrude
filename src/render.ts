@@ -6,6 +6,7 @@ import { loadFont, resolveStyle, isColorFont, findEmojiFont, type FontSource } f
 import { renderText, type FontChoice, type LayoutOptions } from './layout.js';
 import {
   JoinType, SCALE, area, bbox, clean, components, difference, intersection, makeBridges, offset, roundedRect, union,
+  type BridgePlacement,
 } from './geometry.js';
 import type { Shape } from './types.js';
 import { parseColor, toHex, lab, nearestIndex, reduceColors, type RGB } from './colors.js';
@@ -83,6 +84,12 @@ export interface TextrudeOptions {
   bridgeWidth?: number;
   /** Default: the stroke color, else the text color. */
   bridgeColor?: string;
+  /**
+   * Where bridges join pieces side by side: at the "top", "middle", or "bottom" of the height
+   * they share, or "auto" (default) for the shortest gap. Pieces above one another (like the dot
+   * on an i) are always joined across the shortest gap.
+   */
+  bridgePlacement?: BridgePlacement;
 
   // Background
   /** A solid plate behind the design, in this color. */
@@ -456,7 +463,11 @@ export async function textrude(input: string, options: TextrudeOptions = {}): Pr
   } else if (options.connect) {
     const all = union(...layers.map((l) => l.shape));
     const width = options.bridgeWidth ?? (strokeWidth > 0 ? strokeWidth : size * 0.1);
-    const { bridges, count, islands } = makeBridges(all, width, tolerance);
+    const placement = options.bridgePlacement ?? 'auto';
+    if (!['auto', 'top', 'middle', 'bottom'].includes(placement)) {
+      throw new TextrudeError(`bridgePlacement must be one of: auto, top, middle, bottom`);
+    }
+    const { bridges, count, islands } = makeBridges(all, width, tolerance, placement);
     if (count) {
       const bcolor =
         options.bridgeColor != null

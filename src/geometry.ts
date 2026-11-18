@@ -135,6 +135,8 @@ interface Nearest {
   d: number;
   p: Point;
   q: Point;
+  /** Set for a horizontal bar at a chosen height: which way it may slide to still connect. */
+  slide?: number[];
 }
 
 /** Closest pair of points between two components (vertex-to-edge, both directions). */
@@ -158,6 +160,59 @@ function nearest(compA: Component, compB: Component): Nearest {
   return best;
 }
 
+/**
+ * Where bridges go between pieces side by side: "auto" bridges the shortest gap, and "top",
+ * "middle", and "bottom" put a horizontal bar at that height of the span the two pieces share.
+ */
+export type BridgePlacement = 'auto' | 'top' | 'middle' | 'bottom';
+
+/** The spans a component covers along the horizontal line at `y`. */
+function scanline(comp: Component, y: number): [number, number][] {
+  const xs: number[] = [];
+  for (const ring of comp) {
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i]!;
+      const b = ring[(i + 1) % ring.length]!;
+      if (a.Y <= y !== b.Y <= y) xs.push(a.X + ((y - a.Y) * (b.X - a.X)) / (b.Y - a.Y));
+    }
+  }
+  xs.sort((m, n) => m - n);
+  const spans: [number, number][] = [];
+  for (let i = 0; i + 1 < xs.length; i += 2) spans.push([xs[i]!, xs[i + 1]!]);
+  return spans;
+}
+
+/**
+ * The gap between two components along a horizontal line at the placement's height of the
+ * span they share, or null when they don't overlap vertically (one is above the other).
+ */
+function placedGap(compA: Component, compB: Component, a: BBox, b: BBox, placement: BridgePlacement, w: number): Nearest | null {
+  const lo = Math.max(a.minY, b.minY);
+  const hi = Math.min(a.maxY, b.maxY);
+  if (hi <= lo) return null;
+  // Y grows downward, so the top is the smallest Y. Keep the whole bar inside the shared span.
+  let y = (lo + hi) / 2;
+  let slide = [0, -0.25, 0.25, -0.5, 0.5];
+  if (hi - lo > w && placement === 'top') [y, slide] = [lo + w / 2, [0, 0.25, 0.5, 0.75, 1]];
+  if (hi - lo > w && placement === 'bottom') [y, slide] = [hi - w / 2, [0, -0.25, -0.5, -0.75, -1]];
+  y = Math.floor(y) + 0.5; // off the integer grid, so the line never passes through a vertex
+
+  const spans = [
+    ...scanline(compA, y).map(([s, e]) => ({ s, e, k: 0 })),
+    ...scanline(compB, y).map(([s, e]) => ({ s, e, k: 1 })),
+  ].sort((m, n) => m.s - n.s);
+  let best: Nearest | null = null;
+  for (let i = 1; i < spans.length; i++) {
+    const l = spans[i - 1]!;
+    const r = spans[i]!;
+    const d = r.s - l.e;
+    if (l.k === r.k || d < 0 || (best && d >= best.d)) continue;
+    // p is the left end, so the bar's normal points down (+Y), the way `slide` counts.
+    best = { d, p: { X: l.e, Y: y }, q: { X: r.s, Y: y }, slide };
+  }
+  return best;
+}
+
 export interface Bridges {
   /** The bars, as one shape (overlapping the pieces they join). */
   bridges: Shape;
@@ -167,8 +222,11 @@ export interface Bridges {
   islands: number;
 }
 
-/** Bridge all components of `shape` with bars along a minimum spanning tree of nearest gaps. */
-export function makeBridges(shape: Shape, width: number, tol: number): Bridges {
+/**
+ * Bridge all components of `shape` with bars along a minimum spanning tree of nearest gaps. With
+ * a `placement` other than "auto", pieces side by side are joined at that height instead.
+ */
+export function makeBridges(shape: Shape, width: number, tol: number, placement: BridgePlacement = 'auto'): Bridges {
   const comps = components(shape);
   const n = comps.length;
   if (n <= 1) return { bridges: [], count: 0, islands: n };
@@ -188,7 +246,9 @@ export function makeBridges(shape: Shape, width: number, tol: number): Bridges {
     if (l) edges.push(l);
     for (let j = 0; j < n; j++) {
       if (inTree[j] || bboxDist(boxes[i]!, boxes[j]!) >= best[j]!) continue;
-      const r = nearest(comps[i]!, comps[j]!);
+      const r =
+        (placement !== 'auto' && placedGap(comps[i]!, comps[j]!, boxes[i]!, boxes[j]!, placement, width * SCALE)) ||
+        nearest(comps[i]!, comps[j]!);
       if (r.d < best[j]!) {
         best[j] = r.d;
         link[j] = { ...r, i, j };
@@ -196,16 +256,17 @@ export function makeBridges(shape: Shape, width: number, tol: number): Bridges {
     }
   }
 
-  const bars = edges.flatMap((e) => placeBridge(comps[e.i]!, comps[e.j]!, e.p, e.q, width * SCALE, tol));
+  const bars = edges.flatMap((e) => placeBridge(comps[e.i]!, comps[e.j]!, e.p, e.q, width * SCALE, tol, e.slide));
   return { bridges: union(bars), count: edges.length, islands: n };
 }
 
 /**
  * Build a straight bar joining two components near their closest points. The bar is slid
  * sideways to whichever position still connects both pieces while adding the least new
- * material, so it sits inside the gap instead of poking out past corners.
+ * material, so it sits inside the gap instead of poking out past corners. With `slide`, the bar
+ * is at a chosen height instead: it takes the first of those offsets that connects both pieces.
  */
-function placeBridge(compA: Component, compB: Component, p: Point, q: Point, w: number, tol: number): Shape {
+function placeBridge(compA: Component, compB: Component, p: Point, q: Point, w: number, tol: number, slide?: number[]): Shape {
   let ux = q.X - p.X;
   let uy = q.Y - p.Y;
   const len = Math.hypot(ux, uy);
@@ -216,7 +277,7 @@ function placeBridge(compA: Component, compB: Component, p: Point, q: Point, w: 
   const pair = [...compA, ...compB];
 
   let best: { bar: Path; added: number } | null = null;
-  for (const f of [0, -0.25, 0.25, -0.5, 0.5, -0.75, 0.75, -1, 1]) {
+  for (const f of slide ?? [0, -0.25, 0.25, -0.5, 0.5, -0.75, 0.75, -1, 1]) {
     const t = f * w;
     const pt = (base: Point, along: number, side: number): Point => ({
       X: Math.round(base.X + ux * along + nx * (t + side)),
@@ -226,6 +287,7 @@ function placeBridge(compA: Component, compB: Component, p: Point, q: Point, w: 
     if (components(union(pair, [bar])).length !== 1) continue;
     const added = difference([bar], pair).reduce((s, r) => s + Math.abs(Clipper.Area(r)), 0);
     if (!best || added < best.added * 0.999) best = { bar, added };
+    if (slide) break;
   }
   if (best) return [best.bar];
 
