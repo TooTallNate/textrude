@@ -14,6 +14,16 @@ export type {
   TextrudeOptions, TextrudeResult, Part, Role, UsedFont, LogEvent, LogLevel, ThreeMfExportOptions, MeshOptions, PartMesh, Flush,
 } from './render.js';
 export { arrange } from './plate.js';
+export { cookieStamp, splitOutline } from './stamp.js';
+export type {
+  CookieStampOptions, CookieStampResult, ResolvedStampOptions, StampPart, StampPartMesh, StampPartName, StampStyle, HandleMode,
+  StampMeshOptions, StampThreeMfOptions,
+} from './stamp.js';
+export { parseSvg } from './svg-input.js';
+export type { ParsedSvg, ParseSvgOptions, SvgShape } from './svg-input.js';
+export { writeStl, checkManifold } from './mesh.js';
+export type { ManifoldReport } from './mesh.js';
+export type { Mesh } from './threemf.js';
 export type { ArrangeOptions, Plate, PlateObject } from './plate.js';
 export { PRINTERS, projectSettings } from './printers.js';
 export type { PrinterProfile } from './printers.js';

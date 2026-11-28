@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="60mm" height="60mm" viewBox="0 0 100 100">
+  <!-- The background circle sets the stamp's outline; everything on top of it is the design. -->
+  <circle cx="50" cy="50" r="49" fill="#e6e6e6"/>
+  <defs>
+    <g id="arm" fill="none" stroke="#000" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M50 50 V12"/>
+      <path d="M50 22 l-8 -8 M50 22 l8 -8"/>
+      <path d="M50 34 l-10 -9 M50 34 l10 -9"/>
+    </g>
+  </defs>
+  <use xlink:href="#arm"/>
+  <use xlink:href="#arm" transform="rotate(60 50 50)"/>
+  <use xlink:href="#arm" transform="rotate(120 50 50)"/>
+  <use xlink:href="#arm" transform="rotate(180 50 50)"/>
+  <use xlink:href="#arm" transform="rotate(240 50 50)"/>
+  <use xlink:href="#arm" transform="rotate(300 50 50)"/>
+  <!-- A ring around the edge, drawn with arcs. -->
+  <path d="M50 6 A44 44 0 1 1 49.99 6 Z M50 9.5 A40.5 40.5 0 1 0 50.01 9.5 Z" fill="#000" fill-rule="evenodd"/>
+  <polygon points="50,42 52.4,47 58,47.6 53.8,51.3 55,56.8 50,54 45,56.8 46.2,51.3 42,47.6 47.6,47" fill="#e6e6e6" stroke="#000" stroke-width="1.5"/>
+</svg>

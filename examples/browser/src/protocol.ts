@@ -1,4 +1,4 @@
-import type { Flush, LogEvent, Role, TextrudeOptions } from 'textrude';
+import type { CookieStampOptions, Flush, LogEvent, Role, StampPartName, TextrudeOptions } from 'textrude';
 
 /** Options passed straight through to `textrude()`. Fonts are sent separately, by key. */
 export type RenderOptions = Omit<TextrudeOptions, 'font' | 'fallbackFonts' | 'onLog'>;
@@ -32,11 +32,31 @@ export interface RenderRequest {
   flush?: Flush;
 }
 
+/** A cookie stamp (and cutter) from an SVG. */
+export interface StampRequest {
+  svg: string;
+  /** Shown as the model's name. */
+  name: string;
+  options: Omit<CookieStampOptions, 'onLog'>;
+  /** Show a stamp that prints face-down turned face up. */
+  faceUp: boolean;
+}
+
+export type StampExportFormat = '3mf' | 'stl';
+
+export interface StampExportOptions {
+  printer?: string;
+  /** One part (STL is always one part). */
+  part?: StampPartName;
+}
+
 export type WorkerRequest =
   /** Make font data available under `key` (fonts with URL keys are fetched on demand). */
   | { type: 'font'; key: string; data: Uint8Array }
   | ({ type: 'render'; id: number } & RenderRequest)
-  | { type: 'export'; id: number; format: ExportFormat; options: ExportOptions };
+  | { type: 'export'; id: number; format: ExportFormat; options: ExportOptions }
+  | ({ type: 'stamp'; id: number } & StampRequest)
+  | { type: 'stamp-export'; id: number; format: StampExportFormat; options: StampExportOptions };
 
 export interface ModelPart {
   id: string;

@@ -53,6 +53,7 @@ jobs:
             --fallback-font test/fixtures/fonts/twemoji-subset.ttf -w 1.5 --connect \
             --printer snapmaker-u1 -o hello.3mf
           printf '\033[31mRed\n\033[34mBlue' | node dist/bin.js -f test/fixtures/fonts/Inter-Variable.ttf -b > ansi.svg
+          node dist/bin.js stamp examples/stamps/snowflake.svg -o stamp.3mf
 
       - name: Check the package contents
         run: pnpm pack --dry-run

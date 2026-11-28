@@ -55,7 +55,7 @@ function fileName(texts: string[]) {
 
 const preview = (text: string) => text.replace(/\s+/g, ' ').trim() || '(empty)';
 
-export default function App() {
+export default function App({ modeTabs }: { modeTabs?: ReactNode }) {
   const initial = useMemo(() => decodeSettings(location.hash), []);
   const [settings, setSettings] = useState<Settings>(initial.settings);
   const [configNotes, setConfigNotes] = useState<string[]>(initial.notes);
@@ -316,15 +316,18 @@ export default function App() {
             </h1>
             <p className="text-xs text-zinc-500">Text and emoji to multi-color 3D prints</p>
           </div>
-          <a
-            href="https://github.com/TooTallNate/textrude"
-            target="_blank"
-            rel="noreferrer"
-            className="rounded-md p-2 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
-            aria-label="textrude on GitHub"
-          >
-            <GitHubIcon className="size-4.5" />
-          </a>
+          <div className="flex items-center gap-1">
+            {modeTabs}
+            <a
+              href="https://github.com/TooTallNate/textrude"
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-md p-2 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+              aria-label="textrude on GitHub"
+            >
+              <GitHubIcon className="size-4.5" />
+            </a>
+          </div>
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto">

@@ -3,7 +3,7 @@
  */
 import { isBmfont, parseBmfont } from '@tootallnate/bitmap-font';
 import { zipSync } from 'fflate';
-import { arrange, textrude, TextrudeError, type LogEvent, type Plate, type TextrudeResult } from 'textrude';
+import { arrange, cookieStamp, textrude, TextrudeError, type CookieStampResult, type LogEvent, type Plate, type TextrudeResult } from 'textrude';
 import type { Model, WorkerRequest, WorkerResponse } from './protocol';
 
 const ctx = self as unknown as {
@@ -47,6 +47,7 @@ function font(key: string): Promise<Uint8Array> {
 }
 
 let last: Plate | null = null;
+let lastStamp: CookieStampResult | null = null;
 // Where messages go. A result keeps the logger it was rendered with, so this is swapped for each
 // request (exports log too, e.g. bed size warnings).
 let sink: LogEvent[] = [];
@@ -94,6 +95,44 @@ ctx.onmessage = async (e: MessageEvent<WorkerRequest>) => {
       post({ type: 'rendered', id: msg.id, model, logs }, model.parts.flatMap((p) => [p.positions.buffer, p.indices.buffer]));
     } catch (err) {
       post({ type: 'error', id: msg.id, message: err instanceof Error ? err.message : String(err), logs });
+    }
+  } else if (msg.type === 'stamp') {
+    const logs: LogEvent[] = (sink = []);
+    try {
+      const start = performance.now();
+      const result = cookieStamp(msg.svg, { ...msg.options, onLog });
+      const meshes = result.toMeshes({ faceUp: msg.faceUp });
+      lastStamp = result;
+      const model: Model = {
+        id: msg.id,
+        texts: [msg.name],
+        parts: meshes.map(({ part, positions, indices }) => ({
+          id: part.name,
+          color: part.color,
+          filament: 1,
+          height: part.height,
+          roles: [],
+          positions,
+          indices,
+        })),
+        width: result.width,
+        depth: result.depth,
+        height: result.height,
+        time: performance.now() - start,
+      };
+      post({ type: 'rendered', id: msg.id, model, logs }, model.parts.flatMap((p) => [p.positions.buffer, p.indices.buffer]));
+    } catch (err) {
+      post({ type: 'error', id: msg.id, message: err instanceof Error ? err.message : String(err), logs });
+    }
+  } else if (msg.type === 'stamp-export') {
+    try {
+      if (!lastStamp) throw new Error('nothing to export yet');
+      sink = [];
+      const { printer, part } = msg.options;
+      const data = msg.format === '3mf' ? lastStamp.to3MF({ printer: printer || undefined, part }) : lastStamp.toSTL(part);
+      post({ type: 'exported', id: msg.id, data, logs: sink });
+    } catch (err) {
+      post({ type: 'export-error', id: msg.id, message: err instanceof Error ? err.message : String(err) });
     }
   } else if (msg.type === 'export') {
     try {

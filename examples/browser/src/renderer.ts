@@ -1,5 +1,7 @@
 import type { LogEvent } from 'textrude';
-import type { ExportFormat, ExportOptions, Model, RenderRequest, WorkerRequest, WorkerResponse } from './protocol';
+import type {
+  ExportFormat, ExportOptions, Model, RenderRequest, StampExportFormat, StampExportOptions, StampRequest, WorkerRequest, WorkerResponse,
+} from './protocol';
 
 export type RenderOutcome = { model: Model; logs: LogEvent[]; error?: undefined } | { error: string; logs: LogEvent[]; model?: undefined };
 
@@ -11,7 +13,7 @@ export class Renderer {
   private worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
   private nextId = 1;
   private busy = false;
-  private pending: RenderRequest | null = null;
+  private pending: ({ type: 'render' } & RenderRequest) | ({ type: 'stamp' } & StampRequest) | null = null;
   private sentFonts = new Set<string>();
   private exports = new Map<number, { resolve: (data: Uint8Array | string) => void; reject: (err: Error) => void }>();
 
@@ -37,7 +39,13 @@ export class Renderer {
   }
 
   render(req: RenderRequest) {
-    this.pending = req;
+    this.pending = { type: 'render', ...req };
+    this.flush();
+  }
+
+  /** Make a cookie stamp (coalesced like renders). */
+  renderStamp(req: StampRequest) {
+    this.pending = { type: 'stamp', ...req };
     this.flush();
   }
 
@@ -46,6 +54,14 @@ export class Renderer {
     return new Promise((resolve, reject) => {
       this.exports.set(id, { resolve, reject });
       this.send({ type: 'export', id, format, options });
+    });
+  }
+
+  exportStamp(format: StampExportFormat, options: StampExportOptions): Promise<Uint8Array | string> {
+    const id = this.nextId++;
+    return new Promise((resolve, reject) => {
+      this.exports.set(id, { resolve, reject });
+      this.send({ type: 'stamp-export', id, format, options });
     });
   }
 
@@ -63,7 +79,7 @@ export class Renderer {
     this.pending = null;
     this.busy = true;
     this.onBusy(true);
-    this.send({ type: 'render', id: this.nextId++, ...req });
+    this.send({ ...req, id: this.nextId++ });
   }
 
   private receive(msg: WorkerResponse) {

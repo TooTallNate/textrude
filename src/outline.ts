@@ -6,27 +6,43 @@ export interface PathCommand {
   args: number[];
 }
 
+/** A flattened subpath: its points, and whether it was closed (with closePath). */
+export interface Polyline {
+  points: [number, number][];
+  closed: boolean;
+}
+
 /**
  * Flatten fontkit path commands to closed polylines (font units, y up). Curves are split into
  * enough segments to stay within `tol` (font units) of the true curve.
  */
 export function flattenCommands(commands: PathCommand[], tol: number): Contour[] {
   const contours: Contour[] = [];
+  for (const { points } of flattenSubpaths(commands, tol)) {
+    const a = points[0]!;
+    const b = points[points.length - 1]!;
+    if (points.length > 1 && a[0] === b[0] && a[1] === b[1]) points.pop();
+    if (points.length >= 3) contours.push(points);
+  }
+  return contours;
+}
+
+/**
+ * Flatten path commands to polylines, one per subpath, keeping open subpaths (e.g. for strokes)
+ * and noting which were closed.
+ */
+export function flattenSubpaths(commands: PathCommand[], tol: number): Polyline[] {
+  const out: Polyline[] = [];
   let cur: Contour | null = null;
   let last: [number, number] = [0, 0];
-  const close = () => {
-    if (cur) {
-      const a = cur[0]!;
-      const b = cur[cur.length - 1]!;
-      if (cur.length > 1 && a[0] === b[0] && a[1] === b[1]) cur.pop();
-      if (cur.length >= 3) contours.push(cur);
-    }
+  const close = (closed: boolean) => {
+    if (cur && cur.length) out.push({ points: cur, closed });
     cur = null;
   };
   for (const { command, args } of commands) {
     const a = args as number[];
     if (command === 'moveTo') {
-      close();
+      close(false);
       last = [a[0]!, a[1]!];
       cur = [last];
     } else if (command === 'lineTo') {
@@ -63,9 +79,12 @@ export function flattenCommands(commands: PathCommand[], tol: number): Contour[]
       }
       last = [x3, y3];
     } else if (command === 'closePath') {
-      close();
+      // The pen goes back to the subpath's start.
+      const start = cur?.[0];
+      close(true);
+      if (start) last = start;
     }
   }
-  close();
-  return contours;
+  close(false);
+  return out;
 }

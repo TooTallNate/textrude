@@ -19,6 +19,11 @@ export interface MeshPart {
   z?: number;
   /** 1-based filament ("extruder") number. */
   filament: number;
+  /**
+   * A ready-made mesh (mm, Z up, centered on the object's footprint like an extruded part), used
+   * instead of extruding `shape`, which then only places the object.
+   */
+  mesh?: Mesh;
 }
 
 export interface Mesh {
@@ -64,7 +69,7 @@ function cleanRing(ring: Path): Path | null {
  * vertex indices into `pts`. Returns a flat list of vertex indices; `addPoint` is called for
  * any new intersection vertex.
  */
-function triangulate(pts: [number, number][], rings: number[][], addPoint: (x: number, y: number) => number): number[] {
+export function triangulate(pts: [number, number][], rings: number[][], addPoint: (x: number, y: number) => number): number[] {
   const { GluTesselator, gluEnum, windingRule, primitiveType } = libtess;
   const tess = new GluTesselator();
   const out: number[] = [];
@@ -199,7 +204,7 @@ export function write3mf(objects: MeshObject[], { name, position, mirror = false
     const [cx, cy] = center(obj.parts.flatMap((p) => p.shape));
     const ids = obj.parts.map((part) => {
       const id = nextId++;
-      const { verts, tris } = extrude(part.shape, part.height, cx, cy, mirror, part.z);
+      const { verts, tris } = part.mesh ?? extrude(part.shape, part.height, cx, cy, mirror, part.z);
       const v = verts.map(([x, y, z]) => `<vertex x="${f(x)}" y="${f(y)}" z="${f(z)}"/>`).join('');
       const t = tris.map(([a, b2, c]) => `<triangle v1="${a}" v2="${b2}" v3="${c}"/>`).join('');
       resources.push(`  <object id="${id}" name="${xmlEsc(part.id)}" type="model"><mesh><vertices>${v}</vertices><triangles>${t}</triangles></mesh></object>`);

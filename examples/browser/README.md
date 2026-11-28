@@ -6,6 +6,7 @@ A single-page web app for designing textrude prints, with a live 3D preview (thr
 - **Emoji**: Twemoji or OpenMoji, loaded only when the text has non-ASCII characters.
 - **Multiple texts**: each one is a separate object on the plate, with its own style (a new text starts with the selected one's), laid out in rows that fit the printer's bed.
 - **Config files**: save the design as the same JSON the CLI reads (`textrude --config design.json`), and load one back. Bundled fonts are saved as URLs, so a saved config works with the CLI anywhere. To load a config that uses font files, drop them on the page together with the config.
+- **Cookie stamps**: the **Stamp** tab (`?mode=stamp`) turns an SVG you open or drop on the page into a cookie stamp (with a handle) and a matching cutter, with a 3D preview and 3MF / STL downloads. See `textrude stamp` in the main README.
 - **Shareable designs**: the config is also kept in the URL hash, so designs survive reloads and can be shared (fonts that aren't bundled or from a URL have to be added again).
 
 ## Development
