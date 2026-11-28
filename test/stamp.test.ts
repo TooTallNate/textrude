@@ -238,7 +238,8 @@ describe('cookie stamp', () => {
   });
 
   it('defaults to a separate handle for imprinted stamps and an attached one for embossed', () => {
-    expect(cookieStamp(svg).options).toMatchObject({ style: 'imprinted', handle: 'separate', chamfer: true, depth: 1.8, plateThickness: 4 });
+    expect(cookieStamp(svg).options).toMatchObject({ style: 'imprinted', handle: 'separate', chamfer: false, depth: 1.8, plateThickness: 4 });
+    expect(cookieStamp(svg, { handle: 'attached' }).options).toMatchObject({ style: 'imprinted', chamfer: true });
     expect(cookieStamp(svg, { style: 'embossed' }).options).toMatchObject({ handle: 'attached', chamfer: false });
   });
 

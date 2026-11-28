@@ -336,7 +336,10 @@ export function cookieStamp(svg: string | Uint8Array, options: CookieStampOption
 
   const depth = num('depth', options.depth, 1.8, 0, false);
   const plate = num('plateThickness', options.plateThickness, 4, 0, false);
-  const chamfer = options.chamfer ?? style === 'imprinted';
+  // 45° walls only help a one-piece imprinted stamp (printed face-down, so the plate bridges between raised
+  // parts). They also widen the relief's base by the full depth, which fills in gaps under ~2× depth (letter
+  // counters, spacing), so they're off whenever the stamp prints face-up.
+  const chamfer = options.chamfer ?? (style === 'imprinted' && handle === 'attached');
   const minFeature = num('minFeature', options.minFeature, 1);
   const handleHeight = num('handleHeight', options.handleHeight, +clamp(size * 0.45, 20, 35).toFixed(1), 0, false);
   const knobD = num('knobDiameter', options.knobDiameter, +clamp(size * 0.4, 16, 32).toFixed(1), 0, false);

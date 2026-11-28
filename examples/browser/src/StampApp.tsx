@@ -105,7 +105,7 @@ export default function StampApp({ modeTabs }: { modeTabs: ReactNode }) {
 
   const style = s.style;
   const handle = s.handle ?? (style === 'imprinted' ? 'separate' : 'attached');
-  const chamfer = s.chamfer ?? style === 'imprinted';
+  const chamfer = s.chamfer ?? (style === 'imprinted' && handle === 'attached');
 
   useEffect(() => {
     const timer = setTimeout(() => {

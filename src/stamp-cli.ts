@@ -30,7 +30,7 @@ Stamp
       --plate-thickness <n>  Thickness of the plate behind the design, in mm  [4]
       --chamfer, --no-chamfer
                              Slope the design's walls at 45°: no supports needed, and
-                             cleaner release from the dough   [on for imprinted only]
+                             cleaner release; fills in gaps under ~2x depth  [on for imprinted + --handle attached]
       --min-feature <n>      Warn about lines or gaps thinner than this, in mm  [1]
 
 Handle
