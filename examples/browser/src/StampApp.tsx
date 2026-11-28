@@ -52,7 +52,7 @@ export const STAMP_DEFAULTS: StampSettings = {
   clearance: 0.5,
   rimWidth: 5,
   rimHeight: 2.5,
-  faceUp: true,
+  faceUp: false,
   printer: '',
 };
 
@@ -411,17 +411,26 @@ export default function StampApp({ modeTabs }: { modeTabs: ReactNode }) {
           <div className="pointer-events-auto flex items-center gap-1 rounded-lg bg-zinc-950/70 p-1 backdrop-blur">
             {busy && <LoaderCircle className="mx-1.5 size-4 animate-spin text-zinc-400" aria-label="Rendering" />}
             {handle === 'attached' && (
-              <button
-                type="button"
-                title="Show the one-piece stamp face up, to see the design (it prints face-down)"
-                onClick={() => set('faceUp', !s.faceUp)}
-                className={cn(
-                  'flex h-7 cursor-pointer items-center rounded-md px-2 text-xs hover:bg-zinc-800',
-                  s.faceUp ? 'bg-zinc-800 text-white' : 'text-zinc-300',
-                )}
-              >
-                {s.faceUp ? 'Face up' : 'As printed'}
-              </button>
+              <div className="flex items-center rounded-md bg-zinc-900 p-0.5 text-xs" role="group" aria-label="Preview orientation">
+                {([
+                  [false, 'As printed', 'Show the one-piece stamp the way it prints: face-down on the bed, handle up (this is how the exported file is oriented)'],
+                  [true, 'Face up', 'Flip the preview to look at the design (preview only; the exported file stays face-down)'],
+                ] as const).map(([v, label, title]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    title={title}
+                    aria-pressed={s.faceUp === v}
+                    onClick={() => set('faceUp', v)}
+                    className={cn(
+                      'flex h-6 cursor-pointer items-center rounded px-2 hover:bg-zinc-800',
+                      s.faceUp === v ? 'bg-zinc-700 text-white' : 'text-zinc-400',
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             )}
             <ViewButton title="Reset view" onClick={() => viewer.current?.fit('perspective')}>
               <Rotate3d className="size-4" />
