@@ -8,9 +8,12 @@ import { systemFonts } from './fonts.js';
 import { area } from './geometry.js';
 import { TextrudeError } from './errors.js';
 import { ui, setQuiet, formatBytes } from './ui.js';
+import { stampMain } from './stamp-cli.js';
 
 const HELP = `Usage: textrude [text] [options]
        textrude [shared options] -t <text> [options] -t <text> [options] ...
+       textrude stamp <file.svg> [options]   (a cookie stamp and cutter from an SVG:
+                                             see textrude stamp --help)
 
 Turn text (including color emoji) into a multi-color 3MF model or an SVG for 3D printing.
 Text comes from the arguments, a config file, or stdin (piped, or "-"). Newlines start new
@@ -441,6 +444,8 @@ function renderOptions(v: Values): TextrudeOptions {
 /** Run the CLI. Returns the process exit code. */
 export async function run(argv: string[], io: RunOptions = {}): Promise<number> {
   try {
+    // (To render the word "stamp" itself, use -t stamp.)
+    if (argv[0] === 'stamp') return await stampMain(argv.slice(1), io);
     return await main(argv, io);
   } catch (err) {
     if (err instanceof TextrudeError) {

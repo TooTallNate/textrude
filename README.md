@@ -254,6 +254,32 @@ textrude Hello -f https://github.com/google/fonts/raw/main/ofl/pacifico/Pacifico
 
 <!-- examples:end -->
 
+## Cookie stamps and cutters
+
+`textrude stamp` turns an SVG into a cookie stamp and a matching cookie cutter, like the personalized stamp sets on Etsy:
+
+```sh
+textrude stamp examples/stamps/snowflake.svg -o snowflake.3mf
+textrude stamp logo.svg --style embossed --size 70 -o logo.3mf
+textrude stamp heart.svg -o heart.stl   # heart-stamp.stl, heart-handle.stl, heart-cutter.stl
+```
+
+- **Outline and design**: the SVG's outermost shape (all its shapes merged, holes filled in) is the outline of the stamp and the cutter. If one element covers that whole outline with a solid fill, like a filled circle behind the artwork, it only sets the outline and every other element is the design. Otherwise everything is the design: a border drawn as a stroked circle stays on the stamp, and artwork that is its own silhouette gets a 3 mm `--margin` around it. Colors don't matter.
+- **Style**: `--style imprinted` (the default) presses the design into the cookie, so it's raised on the stamp. `--style embossed` leaves the design standing up on the cookie, so it's recessed into the stamp. `--depth` sets how far (1.8 mm).
+- **Mirrored**: the design is mirrored on the stamp's face, so it reads correctly on the cookie.
+- **Size**: `--size` is the stamp's width or height, whichever is larger. By default it's the SVG's own size when its width and height are in mm, cm, in, pt, or pc, and 60 mm otherwise.
+- **Handle**:
+  - `--handle separate` (the default for imprinted) prints the stamp face-up, so a raised design needs no bridging, and the handle on its own, knob-down. The handle's peg fits a keyed socket in the back of the stamp, with `--peg-clearance` (0.2 mm) on each side. Glue it if the fit is loose.
+  - `--handle attached` (the default for embossed) makes one piece, printed face-down with the handle up. With an imprinted design, the plate has to bridge over the gaps between the raised parts. The design's walls are sloped at 45° (`--chamfer`, on by default only for a one-piece imprinted stamp; it also widens the relief's base by the full depth, so gaps narrower than about twice the depth fill in) so the gaps are shorter and their sides need no support.
+  - `--no-handle` makes a plain plate.
+  - The knob only overhangs at 45°, so every part prints without supports. Its size scales with the stamp (`--handle-height`, `--knob-diameter`, `--stem-diameter`).
+- **Cutter**: the outline grown by `--clearance` (0.5 mm), so the stamp fits inside it. It's `--cutter-height` tall (14 mm) with a `--cutter-wall` cutting edge (1 mm, twice that lower down), printed rim-down on a 5 mm × 2.5 mm rim (`--rim-width`, `--rim-height`). `--no-cutter` skips it.
+- **Output**: a 3MF has every part as its own object, side by side. STL output writes one file per part, or just one with `--part stamp|handle|cutter`.
+- **SVG support**: paths (every command, including arcs), rect, circle, ellipse, line, polyline, and polygon; groups and `<use>` with transforms; styles from attributes, `style=""`, and simple `<style>` rules; both fill rules; and strokes, which become shapes. Text has to be converted to outlines first (textrude warns about it), and images, clip paths, and masks are ignored.
+- **Warnings** for lines and gaps thinner than `--min-feature` (1 mm), which dough can't hold.
+
+The JavaScript API is `cookieStamp(svg, options)`, which returns the parts' meshes and `to3MF()` / `toSTL()`. The browser demo has a **Stamp** tab.
+
 ## Multiple texts
 
 Each `-t` / `--text` adds a separate object to the plate. Every object has its own parts, one per color:
